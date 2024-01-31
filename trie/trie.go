@@ -381,6 +381,7 @@ func (t *ValidatorTrie) UpdateTrie(newRoot node, oldRoot node, preimages map[com
 		// Our assumption from data input is that shortNode.Val is always a valueNode 
 		// Our assumption from data input is that shortNode.Val is always a fullNode 
 		// Our assumption from data input is that shortNode.Val is always a valueNode 
+		// Our assumption from data input is that shortNode.Val is always a fullNode 
 		ok1 := sanityCheckShortNode(n)
 		ok2 := sanityCheckShortNode(oldsn)
 		if !ok1 || !ok2 { panic(fmt.Sprintf("Val of shortNode isn't a valueNode. Old=%v, new=%v", oldsn, n)) }
