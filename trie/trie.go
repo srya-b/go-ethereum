@@ -18,6 +18,7 @@
 package trie
 
 import (
+<<<<<<< HEAD
 	_"os"
 	"bytes"
 	"errors"
