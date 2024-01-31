@@ -140,6 +140,10 @@ func mustDecodeNodeUnsafe(hash, buf []byte) node {
 	return n
 }
 
+func PublicDecodeNode(hash, buf []byte) (node, error) {
+	return decodeNode(hash, buf)
+}
+
 // decodeNode parses the RLP encoding of a trie node. It will deep-copy the passed
 // byte slice for decoding, so it's safe to modify the byte slice afterwards. The-
 // decode performance of this function is not optimal, but it is suitable for most
