@@ -378,7 +378,11 @@ func (t *ValidatorTrie) UpdateTrie(newRoot node, oldRoot node, preimages map[com
 		oldsn, ok := oldRoot.(*shortNode)
 		if !ok { panic(fmt.Sprintf("The tries differ here. Path=%v, old=%v, new=%v", path, oldRoot, newRoot)) }
 
+<<<<<<< HEAD
 		// Our assumption from data input is that shortNode.Val is always a valueNode 
+=======
+		// Our assumption from data input is that shortNode.Val is always a fullNode 
+>>>>>>> 08d214917 (trie changes for cache)
 		ok1 := sanityCheckShortNode(n)
 		ok2 := sanityCheckShortNode(oldsn)
 		if !ok1 || !ok2 { panic(fmt.Sprintf("Val of shortNode isn't a valueNode. Old=%v, new=%v", oldsn, n)) }
