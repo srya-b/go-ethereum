@@ -18,14 +18,14 @@
 package trie
 
 import (
-	"os"
+	_"os"
 	"bytes"
 	"errors"
 	"fmt"
-	"math/rand"
-	"encoding/binary"
-	"strconv"
-	"sync"
+	_"math/rand"
+	_"encoding/binary"
+	_"strconv"
+	_"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -203,7 +203,6 @@ func (t *Trie) MustGetNode(path []byte) ([]byte, int) {
 	}
 	return item, resolved
 }
-
 
 ///////////////////////////////////////// cche functions ///////////////////////////////////////
 // store nodes
