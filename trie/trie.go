@@ -205,7 +205,6 @@ func (t *Trie) MustGetNode(path []byte) ([]byte, int) {
 	return item, resolved
 }
 
-
 ///////////////////////////////////////// cche functions ///////////////////////////////////////
 // store nodes
 type ValidatorTrie struct {
