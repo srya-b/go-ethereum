@@ -1378,6 +1378,8 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 						default:
 						}
 						//panic("full node children: oldExists and !newExists")
+						//t.NodesChangedAndLostPrefix[newHKey] = t.TrieKeys[oldHKey]
+						//delete(t.TrieKeys, oldHKey)
 						// LAST UPDATE: this node was changed byt other wise just an access
 						t.LastUpdate.AddAccess(append(oldPrefix, byte(i)))
 						t.LastUpdate.RecordChange(append(oldPrefix, byte(i)))
