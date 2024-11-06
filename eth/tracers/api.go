@@ -964,8 +964,7 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 		}
 	}
 	// Execute the trace
-	gasLimitNotSetByUser := args.Gas == nil
-	if err := args.CallDefaults(api.backend.RPCGasCap(), vmctx.BaseFee, api.backend.ChainConfig().ChainID, gasLimitNotSetByUser); err != nil {
+	if err := args.CallDefaults(api.backend.RPCGasCap(), vmctx.BaseFee, api.backend.ChainConfig().ChainID); err != nil {
 		return nil, err
 	}
 	var (
