@@ -91,7 +91,7 @@ func DeleteAccountSnapshot(db ethdb.KeyValueWriter, hash common.Hash) {
 	}
 }
 
-// ReadStorageSnapshot retrieves the snapshot entry of an storage trie leaf.
+// ReadStorageSnapshot retrieves the snapshot entry of a storage trie leaf.
 func ReadStorageSnapshot(db ethdb.KeyValueReader, accountHash, storageHash common.Hash) ([]byte, error) {
 	return ignoreNotFound(db.Get(storageSnapshotKey(accountHash, storageHash)))
 }
