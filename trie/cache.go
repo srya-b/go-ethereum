@@ -1174,6 +1174,7 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 					oldHKey := common.BytesToHash(HashTrieKey(append(oldPrefix, (oldn.Key)...)))
 					log.Info("[short node] lost hash node", "hold", hnOld, "hnew", hnNew, "prefix", currKey, "path", path)
 					t.NodesChangedAndLostPrefix[newHKey] = t.TrieKeys[oldHKey]
+					panic("lost hashnode from shortnode")
 					delete(t.TrieKeys, oldHKey)
 					var oldBytes []byte = hnOld
 					t.LostNodePrevHashPrefix[common.BytesToHash(hnNew)] = oldBytes
@@ -1205,6 +1206,7 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 							log.Info("short node translate", "prefix", currKey, "path", path)
 							t.NodesChangedAndLostPrefix[newHKey] = t.NodesChangedAndLostPrefix[oldHKey]
 							delete(t.NodesChangedAndLost, oldHKey)
+							panic("!oldEsists and !newExists another lost change")
 							// LAST UPDATE: this is at least and access and a change
 							t.LastUpdate.AddAccess(append(newPrefix, (n.Key)...))
 							t.LastUpdate.RecordChange(append(newPrefix, (n.Key)...))
@@ -1300,6 +1302,39 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 							// finally we found it, now proceed with this as the node
 							// act like this is the hashNode and go forward
 							var newHn hashNode = prevHash 
+							if bytes.Equal(oldPrefix, []byte{}) && i == 2 {
+								log.Info("found this node again")
+								nc, _ := NodeFromHashNode(HashNode(newC).Bytes(), preimages)
+								log.Info("Node", "n", nc)
+								switch nc := nc.(type) {
+								case *fullNode:
+									log.Info("Node is fulle node")
+									cnode, _ := NodeFromHashNode(HashNode(nc.Children[5]).Bytes(), preimages)
+									log.Info("cnode", "n", cnode)
+							        switch n5 := cnode.(type) {
+							        case *fullNode:
+							        	n57, _ := NodeFromHashNode(HashNode(n5.Children[7]).Bytes(), preimages)
+							        	log.Info("new: cnode [2, 5, 7]", "n", n57)
+							            switch nn57 := n57.(type) {
+							            case *fullNode:
+							            	n576, _ := NodeFromHashNode(HashNode(nn57.Children[6]).Bytes(), preimages)
+							            	log.Info("new: cnode [2, 5, 7, 6]", "n", n576)
+									        switch nn576 := n576.(type) {
+									        case *fullNode:
+									        	n576_14, _ := NodeFromHashNode(HashNode(nn576.Children[14]).Bytes(), preimages)
+									        	log.Info("cnode [2, 5, 7, 6, 14]", "n", n576_14)
+									        default: log.Info("Something else")
+									        }
+							            default:
+							            }
+							        default:
+							        }
+								case *shortNode: 
+									log.Info("it's a shortnode before")
+								default:
+								}
+								panic("panic")
+							}
 							// LAST UPDATE: do nothing because the update call takes care of it
 							allGoodRecursion = allGoodRecursion && t.UpdateTriePrefix(newC, newHn, append(oldPrefix, byte(i)), append(newPrefix, byte(i)), preimages, append(path, i), storage)
 						} else {
@@ -1310,8 +1345,39 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 						}
 					} else if (oldExists && !newExists) && !sameNode {
 						log.Info("We lost a node", "path", path, "prefix", currNewKey, "idx", i)
+						log.Info("Prefix", "p", bytes.Equal(oldPrefix, []byte{}))
 						t.NodesChangedAndLostPrefix[newHKey] = t.TrieKeys[oldHKey]
 						delete(t.TrieKeys, oldHKey)
+						nc, _ := NodeFromHashNode(HashNode(oldC).Bytes(), t.Nodes)
+						log.Info("The lost node:", "n", nc)
+						switch nc := nc.(type) {
+						case *fullNode:
+							log.Info("Node is fulle node")
+							cnode, _ := NodeFromHashNode(HashNode(nc.Children[5]).Bytes(), t.Nodes)
+							log.Info("cnode", "n", cnode)
+							switch n5 := cnode.(type) {
+							case *fullNode:
+								n57, _ := NodeFromHashNode(HashNode(n5.Children[7]).Bytes(), t.Nodes)
+								log.Info("cnode [2, 5, 7]", "n", n57)
+							    switch nn57 := n57.(type) {
+							    case *fullNode:
+							    	n576, _ := NodeFromHashNode(HashNode(nn57.Children[6]).Bytes(), t.Nodes)
+							    	log.Info("cnode [2, 5, 7, 6]", "n", n576)
+									switch nn576 := n576.(type) {
+									case *fullNode:
+										n576_14, _ := NodeFromHashNode(HashNode(nn576.Children[14]).Bytes(), t.Nodes)
+										log.Info("cnode [2, 5, 7, 6, 14]", "n", n576_14)
+									default: log.Info("Something else")
+									}
+							    default:
+							    }
+							default:
+							}
+						case *shortNode: 
+							log.Info("it's a shortnode before")
+						default:
+						}
+						//panic("full node children: oldExists and !newExists")
 						// LAST UPDATE: this node was changed byt other wise just an access
 						t.LastUpdate.AddAccess(append(oldPrefix, byte(i)))
 						t.LastUpdate.RecordChange(append(oldPrefix, byte(i)))
@@ -3244,6 +3310,8 @@ func TrieNodeFromPrefix(n node, prefix []byte, pos int, keymap map[common.Hash][
 		if len(prefix) == pos {
 			return n, true
 		} else { 
+			log.Info("Getting index", "n", n, "prefix", prefix, "pos", prefix[pos])
+			log.Info("child node", "h", n.Children[prefix[pos]])
 			return TrieNodeFromPrefix(n.Children[prefix[pos]], prefix, pos+1, keymap)
 		}
 	case hashNode:
