@@ -1174,7 +1174,10 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 					oldHKey := common.BytesToHash(HashTrieKey(append(oldPrefix, (oldn.Key)...)))
 					log.Info("[short node] lost hash node", "hold", hnOld, "hnew", hnNew, "prefix", currKey, "path", path)
 					t.NodesChangedAndLostPrefix[newHKey] = t.TrieKeys[oldHKey]
-					panic("lost hashnode from shortnode")
+//<<<<<<< HEAD
+					//panic("lost hashnode from shortnode")
+//=======
+//>>>>>>> b0ed21dae1b4ad363c2a8de7872483658b42d164
 					delete(t.TrieKeys, oldHKey)
 					var oldBytes []byte = hnOld
 					t.LostNodePrevHashPrefix[common.BytesToHash(hnNew)] = oldBytes
@@ -1206,7 +1209,10 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 							log.Info("short node translate", "prefix", currKey, "path", path)
 							t.NodesChangedAndLostPrefix[newHKey] = t.NodesChangedAndLostPrefix[oldHKey]
 							delete(t.NodesChangedAndLost, oldHKey)
-							panic("!oldEsists and !newExists another lost change")
+//<<<<<<< HEAD
+							//panic("!oldEsists and !newExists another lost change")
+//=======
+//>>>>>>> b0ed21dae1b4ad363c2a8de7872483658b42d164
 							// LAST UPDATE: this is at least and access and a change
 							t.LastUpdate.AddAccess(append(newPrefix, (n.Key)...))
 							t.LastUpdate.RecordChange(append(newPrefix, (n.Key)...))
@@ -1302,6 +1308,7 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 							// finally we found it, now proceed with this as the node
 							// act like this is the hashNode and go forward
 							var newHn hashNode = prevHash 
+//<<<<<<< HEAD
 							if bytes.Equal(oldPrefix, []byte{}) && i == 2 {
 								log.Info("found this node again")
 								nc, _ := NodeFromHashNode(HashNode(newC).Bytes(), preimages)
@@ -1335,6 +1342,8 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 								}
 								panic("panic")
 							}
+//=======
+//>>>>>>> b0ed21dae1b4ad363c2a8de7872483658b42d164
 							// LAST UPDATE: do nothing because the update call takes care of it
 							allGoodRecursion = allGoodRecursion && t.UpdateTriePrefix(newC, newHn, append(oldPrefix, byte(i)), append(newPrefix, byte(i)), preimages, append(path, i), storage)
 						} else {
@@ -1345,6 +1354,7 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 						}
 					} else if (oldExists && !newExists) && !sameNode {
 						log.Info("We lost a node", "path", path, "prefix", currNewKey, "idx", i)
+//////////////// >>>>>>> HEAD
 						log.Info("Prefix", "p", bytes.Equal(oldPrefix, []byte{}))
 						t.NodesChangedAndLostPrefix[newHKey] = t.TrieKeys[oldHKey]
 						delete(t.TrieKeys, oldHKey)
@@ -1378,6 +1388,10 @@ func (t *ValidatorTrie) UpdateTriePrefix(newRoot node, oldRoot node, oldPrefix [
 						default:
 						}
 						//panic("full node children: oldExists and !newExists")
+//=======
+						t.NodesChangedAndLostPrefix[newHKey] = t.TrieKeys[oldHKey]
+						delete(t.TrieKeys, oldHKey)
+//>>>>>>> b0ed21dae1b4ad363c2a8de7872483658b42d164
 						// LAST UPDATE: this node was changed byt other wise just an access
 						t.LastUpdate.AddAccess(append(oldPrefix, byte(i)))
 						t.LastUpdate.RecordChange(append(oldPrefix, byte(i)))
@@ -3310,8 +3324,11 @@ func TrieNodeFromPrefix(n node, prefix []byte, pos int, keymap map[common.Hash][
 		if len(prefix) == pos {
 			return n, true
 		} else { 
+//<<<<<<< HEAD
 			log.Info("Getting index", "n", n, "prefix", prefix, "pos", prefix[pos])
 			log.Info("child node", "h", n.Children[prefix[pos]])
+//=======
+//>>>>>>> b0ed21dae1b4ad363c2a8de7872483658b42d164
 			return TrieNodeFromPrefix(n.Children[prefix[pos]], prefix, pos+1, keymap)
 		}
 	case hashNode:

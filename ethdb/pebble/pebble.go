@@ -543,6 +543,8 @@ func (d *Database) meter(refresh time.Duration, namespace string) {
 
 		nWrites [2]int64
 
+		lastWriteStallReport time.Time
+
 		commitCounts               [2]int64
 		commitTotalDurations       [2]int64
 		commitSemaphoreWaits       [2]int64
