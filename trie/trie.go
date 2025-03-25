@@ -179,6 +179,7 @@ func (t *Trie) get(origNode node, key []byte, pos int) (value []byte, newnode no
 		}
 		return value, n, didResolve, err
 	case *fullNode:
+		log.Info("Full Node string", "n", n.String())
 		value, newnode, didResolve, err = t.get(n.Children[key[pos]], key, pos+1)
 		if err == nil && didResolve {
 			n = n.copy()
@@ -196,6 +197,54 @@ func (t *Trie) get(origNode node, key []byte, pos int) (value []byte, newnode no
 		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
 	}
 }
+
+//func (t *Trie) GetLogged(key []byte) ([]byte, []node, error) {
+//	// Short circuit if the trie is already committed and not usable.
+//	if t.committed {
+//		return nil, ErrCommitted
+//	}
+//	value, newroot, didResolve, err := t.getLogged(t.root, keybytesToHex(key), 0)
+//	if err == nil && didResolve {
+//		t.root = newroot
+//	}
+//	return value, err
+//}
+//
+//func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path []node, newnode node, didResolve bool, err error) {
+//	switch n := (origNode).(type) {
+//	case nil:
+//		return nil, []node{}, nil, false, nil
+//	case valueNode:
+//		return n, []node{origNode}, n, false, nil
+//	case *shortNode:
+//		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
+//			// key not found in trie
+//			return nil, []node{}, n, false, nil
+//		}
+//		value, nodePath, newnode, didResolve, err = t.getLogged(n.Val, key, pos+len(n.Key))
+//		if err == nil && didResolve {
+//			n = n.copy()
+//			n.Val = newnode
+//		}
+//		return value, append([]node{n}, nodePath), n, didResolve, err
+//	case *fullNode:
+//		value, newnode, didResolve, err = t.getLogged(n.Children[key[pos]], key, pos+1)
+//		if err == nil && didResolve {
+//			n = n.copy()
+//			n.Children[key[pos]] = newnode
+//		}
+//		return value, n, didResolve, err
+//	case hashNode:
+//		child, err := t.resolveAndTrack(n, key[:pos])
+//		if err != nil {
+//			return nil, n, true, err
+//		}
+//		value, newnode, _, err := t.getLogged(child, key, pos)
+//		return value, newnode, true, err
+//	default:
+//		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
+//	}
+//}
 
 // MustGetNode is a wrapper of GetNode and will omit any encountered error but
 // just print out an error message.
