@@ -178,6 +178,8 @@ type StateDB struct {
 	onCommit func(states *triestate.Set) // Hook invoked when commit is performed
 
 	deterministic bool
+	logState 	  bool
+
 }
 
 // New creates a new state from a given trie.
@@ -212,11 +214,16 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 		accessList:           newAccessList(),
 		transientStorage:     newTransientStorage(),
 		hasher:               crypto.NewKeccakState(),
+		logState:			  false,
 	}
 	if sdb.snaps != nil {
 		sdb.snap = sdb.snaps.Snapshot(root)
 	}
 	return sdb, nil
+}
+
+func (s *StateDB) StartLogger() {
+	s.logState = true
 }
 
 func (s *StateDB) FilterTx() {
@@ -632,38 +639,41 @@ func (s *StateDB) deleteStateObject(addr common.Address) {
 // the object is not found or was deleted in this execution context.
 func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	// Prefer live objects if any is available
-	if obj := s.stateObjects[addr]; obj != nil {
-		return obj
-	}
+	//if obj := s.stateObjects[addr]; obj != nil {
+	//	return obj
+	//}
 	// Short circuit if the account is already destructed in this block.
 	if _, ok := s.stateObjectsDestruct[addr]; ok {
+		// let it return here because a destruted object is always known and instantly checked
+		// eventually the advice or whatever can inform that something is destroyed, and we don't
+		// want to cache anything explored here
 		return nil
 	}
 	// If no live objects are available, attempt to use snapshots
 	var data *types.StateAccount
-	if s.snap != nil {
-		start := time.Now()
-		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
-		s.SnapshotAccountReads += time.Since(start)
+	//if s.snap != nil {
+	//	start := time.Now()
+	//	acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
+	//	s.SnapshotAccountReads += time.Since(start)
 
-		if err == nil {
-			if acc == nil {
-				return nil
-			}
-			data = &types.StateAccount{
-				Nonce:    acc.Nonce,
-				Balance:  acc.Balance,
-				CodeHash: acc.CodeHash,
-				Root:     common.BytesToHash(acc.Root),
-			}
-			if len(data.CodeHash) == 0 {
-				data.CodeHash = types.EmptyCodeHash.Bytes()
-			}
-			if data.Root == (common.Hash{}) {
-				data.Root = types.EmptyRootHash
-			}
-		}
-	}
+	//	if err == nil {
+	//		if acc == nil {
+	//			return nil
+	//		}
+	//		data = &types.StateAccount{
+	//			Nonce:    acc.Nonce,
+	//			Balance:  acc.Balance,
+	//			CodeHash: acc.CodeHash,
+	//			Root:     common.BytesToHash(acc.Root),
+	//		}
+	//		if len(data.CodeHash) == 0 {
+	//			data.CodeHash = types.EmptyCodeHash.Bytes()
+	//		}
+	//		if data.Root == (common.Hash{}) {
+	//			data.Root = types.EmptyRootHash
+	//		}
+	//	}
+	//}
 	// If snapshot unavailable or reading from it failed, load from the database
 	if data == nil {
 		start := time.Now()
@@ -679,10 +689,15 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 			return nil
 		}
 	}
-	// Insert into the live set
-	obj := newObject(s, addr, data)
-	s.setStateObject(obj)
-	return obj
+	if obj := s.stateObjects[addr]; obj == nil {
+		// Insert into the live set
+		obj := newObject(s, addr, data)
+		s.setStateObject(obj)
+		return obj
+	} else {
+		return s.stateObjects[addr]
+	}
+	//return obj
 }
 
 func (s *StateDB) setStateObject(object *stateObject) {
