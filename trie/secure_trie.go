@@ -108,6 +108,17 @@ func (t *StateTrie) GetAccount(address common.Address) (*types.StateAccount, err
 	return ret, err
 }
 
+func (t *StateTrie) GetAccountLogged(address common.Address) (*types.StateAccount, error) {
+	res, err := t.trie.Get(t.hashKey(address.Bytes()))
+	if res == nil || err != nil {
+		return nil, err
+	}
+	ret := new(types.StateAccount)
+	err = rlp.DecodeBytes(res, ret)
+	return ret, err
+}
+
+
 // GetAccountByHash does the same thing as GetAccount, however it expects an
 // account hash that is the hash of address. This constitutes an abstraction
 // leak, since the client code needs to know the key format.
