@@ -163,6 +163,7 @@ type StateDB struct {
 
 	deterministic bool
 	recording     bool
+	logState 	  bool
 }
 
 // New creates a new state from a given trie.
@@ -196,11 +197,16 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 		journal:              newJournal(),
 		accessList:           newAccessList(),
 		transientStorage:     newTransientStorage(),
+		logState:			  false,
 	}
 	if db.TrieDB().IsVerkle() {
 		sdb.accessEvents = NewAccessEvents(db.PointCache())
 	}
 	return sdb, nil
+}
+
+func (s *StateDB) StartLogger() {
+	s.logState = true
 }
 
 func (s *StateDB) FilterTx() {
@@ -614,15 +620,86 @@ func (s *StateDB) deleteStateObject(addr common.Address) {
 	}
 }
 
-// getStateObject retrieves a state object given by the address, returning nil if
-// the object is not found or was deleted in this execution context.
-func (s *StateDB) getStateObject(addr common.Address) *stateObject {
+func (s *StateDB) getStateObject2(addr common.Address) *stateObject {
 	// Prefer live objects if any is available
 	if obj := s.stateObjects[addr]; obj != nil {
+		//log.Info("Live stateobject", "addr", addr)
+		s.journal.append(getStateObjectEntry{account: &addr})
 		return obj
 	}
 	// Short circuit if the account is already destructed in this block.
 	if _, ok := s.stateObjectsDestruct[addr]; ok {
+		// let it return here because a destruted object is always known and instantly checked
+		// eventually the advice or whatever can inform that something is destroyed, and we don't
+		// want to cache anything explored here
+		s.journal.append(getStateObjectEntry{account: &addr})
+		return nil
+	}
+	// If no live objects are available, attempt to use snapshots
+	var data *types.StateAccount
+	if s.snap != nil {
+		//log.Info("Searching in snapshot", "addr", addr)
+		start := time.Now()
+		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
+		s.SnapshotAccountReads += time.Since(start)
+
+		if err == nil {
+			if acc == nil {
+				return nil
+			}
+			data = &types.StateAccount{
+				Nonce:    acc.Nonce,
+				Balance:  acc.Balance,
+				CodeHash: acc.CodeHash,
+				Root:     common.BytesToHash(acc.Root),
+			}
+			if len(data.CodeHash) == 0 {
+				data.CodeHash = types.EmptyCodeHash.Bytes()
+			}
+			if data.Root == (common.Hash{}) {
+				data.Root = types.EmptyRootHash
+			}
+		}
+	}
+	// If snapshot unavailable or reading from it failed, load from the database
+	if data == nil {
+		//log.Info("Not in snapshot", "addr", addr)
+		start := time.Now()
+		var err error
+		data, err = s.trie.GetAccount(addr)
+		s.AccountReads += time.Since(start)
+
+		if err != nil {
+			s.setError(fmt.Errorf("getDeleteStateObject (%x) error: %w", addr.Bytes(), err))
+			return nil
+		}
+		if data == nil {
+			//log.Info("data == nil")
+			return nil
+		}
+	}
+	// Insert into the live set
+	//log.Info("logging and creating a new object from data", "addr", addr)
+	//log.Info("appending to journal")
+	s.journal.append(getStateObjectEntry{account: &addr})
+	//log.Info("done appending")
+	obj := newObject(s, addr, data)
+	s.setStateObject(obj)
+	return obj
+}
+
+// getStateObject retrieves a state object given by the address, returning nil if
+// the object is not found or was deleted in this execution context.
+func (s *StateDB) getStateObject(addr common.Address) *stateObject {
+	// Prefer live objects if any is available
+	//if obj := s.stateObjects[addr]; obj != nil {
+	//	return obj
+	//}
+	// Short circuit if the account is already destructed in this block.
+	if _, ok := s.stateObjectsDestruct[addr]; ok {
+		// let it return here because a destruted object is always known and instantly checked
+		// eventually the advice or whatever can inform that something is destroyed, and we don't
+		// want to cache anything explored here
 		return nil
 	}
 	s.AccountLoaded++
