@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie/trienode"
 	"github.com/ethereum/go-ethereum/triedb/database"
+	_"github.com/ethereum/go-ethereum/log"
 )
 
 // preimageStore wraps the methods of a backing store for reading and writing
@@ -91,6 +92,14 @@ func NewStateTrie(id *ID, db database.NodeDatabase) (*StateTrie, error) {
 	return tr, nil
 }
 
+func (t *StateTrie) RootString() string {
+	n, ok := t.trie.root.(*fullNode)
+	if (!ok) {
+		panic("Couldn't turn root node to fullNode")
+	}
+	return n.String()
+}
+
 // MustGet returns the value for key stored in the trie.
 // The value bytes must not be modified by the caller.
 //
@@ -113,6 +122,15 @@ func (t *StateTrie) GetStorage(_ common.Address, key []byte) ([]byte, error) {
 	return content, err
 }
 
+func (t *StateTrie) GetStorageLogged(_ common.Address, key []byte) ([]byte, error) {
+	enc, _, err := t.trie.GetLogged(t.hashKey(key))
+	if err != nil || len(enc) == 0 {
+		return nil, err
+	}
+	_, content, _, err := rlp.Split(enc)
+	return content, err
+}
+
 // GetAccount attempts to retrieve an account with provided account address.
 // If the specified account is not in the trie, nil will be returned.
 // If a trie node is not found in the database, a MissingNodeError is returned.
@@ -123,17 +141,18 @@ func (t *StateTrie) GetAccount(address common.Address) (*types.StateAccount, err
 	}
 	ret := new(types.StateAccount)
 	err = rlp.DecodeBytes(res, ret)
+	//log.Info("Root Node", "n", t.trie.RootString())
 	return ret, err
 }
 
-func (t *StateTrie) GetAccountLogged(address common.Address) (*types.StateAccount, error) {
-	res, err := t.trie.Get(t.hashKey(address.Bytes()))
+func (t *StateTrie) GetAccountLogged(address common.Address) (*types.StateAccount, []common.Hash, error) {
+	res, pathHashes, err := t.trie.GetLogged(t.hashKey(address.Bytes()))
 	if res == nil || err != nil {
-		return nil, err
+		return nil, []common.Hash{}, err
 	}
 	ret := new(types.StateAccount)
 	err = rlp.DecodeBytes(res, ret)
-	return ret, err
+	return ret, pathHashes, err
 }
 
 
@@ -192,6 +211,17 @@ func (t *StateTrie) UpdateStorage(_ common.Address, key, value []byte) error {
 	return nil
 }
 
+func (t *StateTrie) UpdateStorageLogged(_ common.Address, key, value []byte) error {
+	hk := t.hashKey(key)
+	v, _ := rlp.EncodeToBytes(value)
+	err := t.trie.UpdateLogged(hk, v)
+	if err != nil {
+		return err
+	}
+	t.getSecKeyCache()[string(hk)] = common.CopyBytes(key)
+	return nil
+}
+
 // UpdateAccount will abstract the write of an account to the secure trie.
 func (t *StateTrie) UpdateAccount(address common.Address, acc *types.StateAccount, _ int) error {
 	hk := t.hashKey(address.Bytes())
@@ -206,7 +236,24 @@ func (t *StateTrie) UpdateAccount(address common.Address, acc *types.StateAccoun
 	return nil
 }
 
+func (t *StateTrie) UpdateAccountLogged(address common.Address, acc *types.StateAccount) error {
+	hk := t.hashKey(address.Bytes())
+	data, err := rlp.EncodeToBytes(acc)
+	if err != nil {
+		return err
+	}
+	if err := t.trie.UpdateLogged(hk, data); err != nil {
+		return err
+	}
+	t.getSecKeyCache()[string(hk)] = address.Bytes()
+	return nil
+}
+
 func (t *StateTrie) UpdateContractCode(_ common.Address, _ common.Hash, _ []byte) error {
+	return nil
+}
+
+func (t *StateTrie) UpdateContractCodeLogged(_ common.Address, _ common.Hash, _ []byte) error {
 	return nil
 }
 
@@ -227,11 +274,23 @@ func (t *StateTrie) DeleteStorage(_ common.Address, key []byte) error {
 	return t.trie.Delete(hk)
 }
 
+func (t *StateTrie) DeleteStorageLogged(_ common.Address, key []byte) error {
+	hk := t.hashKey(key)
+	delete(t.getSecKeyCache(), string(hk))
+	return t.trie.DeleteLogged(hk)
+}
+
 // DeleteAccount abstracts an account deletion from the trie.
 func (t *StateTrie) DeleteAccount(address common.Address) error {
 	hk := t.hashKey(address.Bytes())
 	delete(t.getSecKeyCache(), string(hk))
 	return t.trie.Delete(hk)
+}
+
+func (t *StateTrie) DeleteAccountLogged(address common.Address) error {
+	hk := t.hashKey(address.Bytes())
+	delete(t.getSecKeyCache(), string(hk))
+	return t.trie.DeleteLogged(hk)
 }
 
 // GetKey returns the sha3 preimage of a hashed key that was
@@ -249,6 +308,14 @@ func (t *StateTrie) GetKey(shaKey []byte) []byte {
 // Witness returns a set containing all trie nodes that have been accessed.
 func (t *StateTrie) Witness() map[string]struct{} {
 	return t.trie.Witness()
+}
+
+// TODO
+func (t *StateTrie) GetKeyLogged(shaKey []byte) []byte {
+	if key, ok := t.getSecKeyCache()[string(shaKey)]; ok {
+		return key
+	}
+	return t.db.Preimage(common.BytesToHash(shaKey))
 }
 
 // Commit collects all dirty nodes in the trie and replaces them with the
