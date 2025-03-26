@@ -111,6 +111,14 @@ func NewEmpty(db database.Database) *Trie {
 	return tr
 }
 
+func (t* Trie) RootString() string {
+	n, ok := t.root.(*fullNode)
+	if (!ok) {
+		panic("Root couldn't be a fullNode")
+	}
+	return n.String()
+}
+
 // MustNodeIterator is a wrapper of NodeIterator and will omit any encountered
 // error but just print out an error message.
 func (t *Trie) MustNodeIterator(start []byte) NodeIterator {
@@ -158,11 +166,71 @@ func (t *Trie) Get(key []byte) ([]byte, error) {
 	return value, err
 }
 
+func (t *Trie) GetLogged(key []byte) ([]byte, []common.Hash, error) {
+	// Short circuit if the trie is already committed and not usable.
+	if t.committed {
+		return nil, nil, ErrCommitted
+	}
+	value, pathHashes, newroot, didResolve, err := t.getLogged(t.root, keybytesToHex(key), 0)
+	if err == nil && didResolve {
+		t.root = newroot
+	}
+	return value, pathHashes, err
+}
+
+// for now return the hashes of all the nodes visited, then we can use the root string to confirm and check
+func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, pathHashes []common.Hash, newnode node, didResolve bool, err error) {
+	switch n := (origNode).(type) {
+	case nil:
+		pathHashes = []common.Hash{}
+		return nil, pathHashes, nil, false, nil
+	case valueNode:
+		//log.Warn("Value node", "n", n)
+		pathHashes = []common.Hash{HashNode(n)}
+		return n, pathHashes, n, false, nil
+	case *shortNode:
+		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
+			// key not found in trie
+			return nil, nil, n, false, nil
+		}
+		value, pathHashes, newnode, didResolve, err = t.getLogged(n.Val, key, pos+len(n.Key))
+		pathHashes = append([]common.Hash{HashNode(n)}, pathHashes...)
+		if err == nil && didResolve {
+			n = n.copy()
+			n.Val = newnode
+		}
+		return value, pathHashes, n, didResolve, err
+	case *fullNode:
+		value, pathHashes, newnode, didResolve, err = t.getLogged(n.Children[key[pos]], key, pos+1)
+		pathHashes = append([]common.Hash{HashNode(n)}, pathHashes...)
+		if err == nil && didResolve {
+			n = n.copy()
+			n.Children[key[pos]] = newnode
+		}
+		//log.Info("Full Node string", "n", n.String())
+		//log.Info("Full Node Hash", "h", HashNode(n))
+		//h, _ := t.hashRoot()
+		//log.Info("roothash", "h", h)
+		return value, pathHashes, n, didResolve, err
+	case hashNode:
+		// skip hashNodes because they're just references
+		child, err := t.resolveAndTrack(n, key[:pos])
+		if err != nil {
+			return nil, nil, n, true, err
+		}
+		value, pathHashes, newnode, _, err := t.getLogged(child, key, pos)
+		return value, pathHashes, newnode, true, err
+	default:
+		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
+	}
+}
+
 func (t *Trie) get(origNode node, key []byte, pos int) (value []byte, newnode node, didResolve bool, err error) {
 	switch n := (origNode).(type) {
 	case nil:
 		return nil, nil, false, nil
 	case valueNode:
+		//log.Warn("Value node", "n", n)
 		return n, n, false, nil
 	case *shortNode:
 		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
@@ -176,12 +244,15 @@ func (t *Trie) get(origNode node, key []byte, pos int) (value []byte, newnode no
 		}
 		return value, n, didResolve, err
 	case *fullNode:
-		log.Info("Full Node string", "n", n.String())
 		value, newnode, didResolve, err = t.get(n.Children[key[pos]], key, pos+1)
 		if err == nil && didResolve {
 			n = n.copy()
 			n.Children[key[pos]] = newnode
 		}
+		//log.Info("Full Node string", "n", n.String())
+		//log.Info("Full Node Hash", "h", HashNode(n))
+		//h, _ := t.hashRoot()
+		//log.Info("roothash", "h", h)
 		return value, n, didResolve, err
 	case hashNode:
 		child, err := t.resolveAndTrack(n, key[:pos])
@@ -195,53 +266,6 @@ func (t *Trie) get(origNode node, key []byte, pos int) (value []byte, newnode no
 	}
 }
 
-//func (t *Trie) GetLogged(key []byte) ([]byte, []node, error) {
-//	// Short circuit if the trie is already committed and not usable.
-//	if t.committed {
-//		return nil, ErrCommitted
-//	}
-//	value, newroot, didResolve, err := t.getLogged(t.root, keybytesToHex(key), 0)
-//	if err == nil && didResolve {
-//		t.root = newroot
-//	}
-//	return value, err
-//}
-//
-//func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path []node, newnode node, didResolve bool, err error) {
-//	switch n := (origNode).(type) {
-//	case nil:
-//		return nil, []node{}, nil, false, nil
-//	case valueNode:
-//		return n, []node{origNode}, n, false, nil
-//	case *shortNode:
-//		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
-//			// key not found in trie
-//			return nil, []node{}, n, false, nil
-//		}
-//		value, nodePath, newnode, didResolve, err = t.getLogged(n.Val, key, pos+len(n.Key))
-//		if err == nil && didResolve {
-//			n = n.copy()
-//			n.Val = newnode
-//		}
-//		return value, append([]node{n}, nodePath), n, didResolve, err
-//	case *fullNode:
-//		value, newnode, didResolve, err = t.getLogged(n.Children[key[pos]], key, pos+1)
-//		if err == nil && didResolve {
-//			n = n.copy()
-//			n.Children[key[pos]] = newnode
-//		}
-//		return value, n, didResolve, err
-//	case hashNode:
-//		child, err := t.resolveAndTrack(n, key[:pos])
-//		if err != nil {
-//			return nil, n, true, err
-//		}
-//		value, newnode, _, err := t.getLogged(child, key, pos)
-//		return value, newnode, true, err
-//	default:
-//		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
-//	}
-//}
 
 // MustGetNode is a wrapper of GetNode and will omit any encountered error but
 // just print out an error message.
@@ -362,6 +386,14 @@ func (t *Trie) Update(key, value []byte) error {
 	return t.update(key, value)
 }
 
+func (t *Trie) UpdateLogged(key, value []byte) error {
+	// Short circuit if the trie is already committed and not usable.
+	if t.committed {
+		return ErrCommitted
+	}
+	return t.update(key, value)
+}
+
 func (t *Trie) update(key, value []byte) error {
 	t.unhashed++
 	k := keybytesToHex(key)
@@ -473,6 +505,21 @@ func (t *Trie) MustDelete(key []byte) {
 // If the requested node is not present in trie, no error will be returned.
 // If the trie is corrupted, a MissingNodeError is returned.
 func (t *Trie) Delete(key []byte) error {
+	// Short circuit if the trie is already committed and not usable.
+	if t.committed {
+		return ErrCommitted
+	}
+	t.unhashed++
+	k := keybytesToHex(key)
+	_, n, err := t.delete(t.root, nil, k)
+	if err != nil {
+		return err
+	}
+	t.root = n
+	return nil
+}
+
+func (t *Trie) DeleteLogged(key []byte) error {
 	// Short circuit if the trie is already committed and not usable.
 	if t.committed {
 		return ErrCommitted

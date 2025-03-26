@@ -73,6 +73,13 @@ func (m *mutation) isDelete() bool {
 	return m.typ == deletion
 }
 
+type OP int
+
+const (
+	GetState OP = iota
+	SetState
+)
+
 // StateDB structs within the ethereum protocol are used to store anything
 // within the merkle trie. StateDBs take care of caching and storing
 // nested states. It's the general query interface to retrieve:
@@ -179,8 +186,11 @@ type StateDB struct {
 
 	deterministic bool
 	logState 	  bool
-
+	pathsTaken    [][]common.Hash  // all of the paths accessed
+	opsCalled 	  []OP			   // what GetState/SetState was called
+	totalOp	      int			   // lenth of opsCalled and length of pathsTaken
 }
+
 
 // New creates a new state from a given trie.
 func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) {
@@ -224,6 +234,14 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 
 func (s *StateDB) StartLogger() {
 	s.logState = true
+}
+
+func (s* StateDB) RootString() string {
+	return s.trie.RootString()
+}
+
+func (s *StateDB) TestFunction() {
+	s.trie.Hash()
 }
 
 func (s *StateDB) FilterTx() {
@@ -411,7 +429,13 @@ func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
 
 // GetState retrieves a value from the given account's storage trie.
 func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
-	stateObject := s.getStateObject(addr)
+	var stateObject *stateObject
+	if s.logState {
+		stateObject, _ = s.getStateObjectLogged(addr)
+	} else {
+		stateObject = s.getStateObject(addr)
+	}
+	
 	if stateObject != nil {
 		return stateObject.GetState(hash)
 	}
@@ -639,9 +663,9 @@ func (s *StateDB) deleteStateObject(addr common.Address) {
 // the object is not found or was deleted in this execution context.
 func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	// Prefer live objects if any is available
-	//if obj := s.stateObjects[addr]; obj != nil {
-	//	return obj
-	//}
+	if obj := s.stateObjects[addr]; obj != nil {
+		return obj
+	}
 	// Short circuit if the account is already destructed in this block.
 	if _, ok := s.stateObjectsDestruct[addr]; ok {
 		// let it return here because a destruted object is always known and instantly checked
@@ -651,29 +675,29 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	}
 	// If no live objects are available, attempt to use snapshots
 	var data *types.StateAccount
-	//if s.snap != nil {
-	//	start := time.Now()
-	//	acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
-	//	s.SnapshotAccountReads += time.Since(start)
+	if s.snap != nil {
+		start := time.Now()
+		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
+		s.SnapshotAccountReads += time.Since(start)
 
-	//	if err == nil {
-	//		if acc == nil {
-	//			return nil
-	//		}
-	//		data = &types.StateAccount{
-	//			Nonce:    acc.Nonce,
-	//			Balance:  acc.Balance,
-	//			CodeHash: acc.CodeHash,
-	//			Root:     common.BytesToHash(acc.Root),
-	//		}
-	//		if len(data.CodeHash) == 0 {
-	//			data.CodeHash = types.EmptyCodeHash.Bytes()
-	//		}
-	//		if data.Root == (common.Hash{}) {
-	//			data.Root = types.EmptyRootHash
-	//		}
-	//	}
-	//}
+		if err == nil {
+			if acc == nil {
+				return nil
+			}
+			data = &types.StateAccount{
+				Nonce:    acc.Nonce,
+				Balance:  acc.Balance,
+				CodeHash: acc.CodeHash,
+				Root:     common.BytesToHash(acc.Root),
+			}
+			if len(data.CodeHash) == 0 {
+				data.CodeHash = types.EmptyCodeHash.Bytes()
+			}
+			if data.Root == (common.Hash{}) {
+				data.Root = types.EmptyRootHash
+			}
+		}
+	}
 	// If snapshot unavailable or reading from it failed, load from the database
 	if data == nil {
 		start := time.Now()
@@ -689,16 +713,81 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 			return nil
 		}
 	}
-	if obj := s.stateObjects[addr]; obj == nil {
-		// Insert into the live set
-		obj := newObject(s, addr, data)
-		s.setStateObject(obj)
-		return obj
-	} else {
-		return s.stateObjects[addr]
-	}
+	// Insert into the live set
+	obj := newObject(s, addr, data)
+	s.setStateObject(obj)
+	return obj
 	//return obj
 }
+
+func (s *StateDB) getStateObjectLogged(addr common.Address) (*stateObject, []common.Hash) {
+	// Prefer live objects if any is available
+	if obj := s.stateObjects[addr]; obj != nil {
+		_, pathHashes, err := s.trie.GetAccountLogged(addr) 
+		if err != nil {
+			panic(err)
+		}
+		return obj, pathHashes
+	}
+	// Short circuit if the account is already destructed in this block.
+	// TODO what to do here?
+	if _, ok := s.stateObjectsDestruct[addr]; ok {
+		// let it return here because a destruted object is always known and instantly checked
+		// eventually the advice or whatever can inform that something is destroyed, and we don't
+		// want to cache anything explored here
+		return nil, []common.Hash{}
+	}
+	// If no live objects are available, attempt to use snapshots
+	// NOTE: snapshot reads are out of the question
+	var data *types.StateAccount
+	if s.snap != nil {
+		start := time.Now()
+		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
+		s.SnapshotAccountReads += time.Since(start)
+
+		if err == nil {
+			if acc == nil {
+				return nil, []common.Hash{}
+			}
+			data = &types.StateAccount{
+				Nonce:    acc.Nonce,
+				Balance:  acc.Balance,
+				CodeHash: acc.CodeHash,
+				Root:     common.BytesToHash(acc.Root),
+			}
+			if len(data.CodeHash) == 0 {
+				data.CodeHash = types.EmptyCodeHash.Bytes()
+			}
+			if data.Root == (common.Hash{}) {
+				data.Root = types.EmptyRootHash
+			}
+		}
+	}
+	// If snapshot unavailable or reading from it failed, load from the database
+	var pathHashes []common.Hash
+	if data == nil {
+		start := time.Now()
+		var err error
+		data, pathHashes, err = s.trie.GetAccountLogged(addr)
+		s.AccountReads += time.Since(start)
+
+		// TODO: what to do here
+		if err != nil {
+			s.setError(fmt.Errorf("getDeleteStateObject (%x) error: %w", addr.Bytes(), err))
+			return nil, []common.Hash{}
+		}
+		if data == nil {
+			return nil, []common.Hash{}
+		}
+	}
+	// Insert into the live set
+	obj := newObject(s, addr, data)
+	s.setStateObject(obj)
+	return obj, pathHashes
+	//return obj
+}
+
+
 
 func (s *StateDB) setStateObject(object *stateObject) {
 	s.stateObjects[object.Address()] = object
