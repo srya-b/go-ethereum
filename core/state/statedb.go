@@ -85,6 +85,8 @@ const (
 	OpSubBalance
 	OpSetBalance
 	OpSetNonce
+	OpSetCode
+	OpSelfDestruct
 )
 
 type OP struct {
@@ -487,31 +489,17 @@ func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 		if pathHashes == nil && rawNodesOnPath == nil {
 			// this means this is a live object so we don't have to do anything but log this access
 			s.logGetState(addr, hash, types.EmptyCodeHash, types.EmptyCodeHash.Bytes(), []common.Hash{})
-			//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: hash, value: types.EmptyCodeHash, node: types.EmptyCodeHash.Bytes()})
-			//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-			//s.totalOps = s.totalOps + 1
 		} else {
 			// add this op to the list of ops
-			//s.opsCalled = append(s.opsCalled, OpGetState)
-			//log.Info("GetState", "p", pathHashes)
 			s.logGetState(addr, hash, types.EmptyCodeHash, valNodeBytes, pathHashes)
-			//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: hash, value: types.EmptyCodeHash, node: valNodeBytes})
-			//s.pathsTaken = append(s.pathsTaken, pathHashes)	
-			//s.totalOps = s.totalOps + 1
 		}
 		if stateObject != nil {
 			var storageObject common.Hash
 			storageObject, pathHashes, rawNodesOnPath = stateObject.GetStateLogged(hash)
 			if pathHashes == nil && rawNodesOnPath == nil {
 				s.logGetStorage(addr, hash, types.EmptyCodeHash, nil, []common.Hash{})
-				//s.opsCalled = append(s.opsCalled, OP{op: OpGetStorage, addr: addr, key: hash, value: types.EmptyCodeHash, node: nil})
-				//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-				//s.totalOps = s.totalOps + 1
 			} else {
 				s.logGetStorage(addr, hash, storageObject, nil, pathHashes)
-				//s.opsCalled = append(s.opsCalled, OP{op: OpGetStorage, addr: addr, key: hash, value: storageObject, node: nil})
-				//s.pathsTaken = append(s.pathsTaken, pathHashes)
-				//s.totalOps = s.totalOps + 1
 			}
 			return storageObject
 		} else {
@@ -520,9 +508,6 @@ func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 				panic("GetState: stateObject no found and nothing traversed?")
 			}
 			s.logGetStorageMiss(addr, hash, types.EmptyCodeHash, nil, pathHashes)
-			//s.opsCalled = append(s.opsCalled, OP{op: OpGetStorageMiss, addr: addr, key: hash, value: types.EmptyCodeHash, node: nil})
-			//s.pathsTaken = append(s.pathsTaken, pathsTaken)
-			//s.totalOps = s.totalOps + 1
 		}
 	} else {
 		stateObject = s.getStateObject(addr)
@@ -663,6 +648,12 @@ func (s *StateDB) SetNonce(addr common.Address, nonce uint64, reason tracing.Non
 	}
 }
 
+func (s *StateDB) logSetCode(addr common.Address, codeHash []byte) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetCode, addr: addr, key: emptyHash, value: emptyHash, node: codeHash})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
 func (s *StateDB) SetCode(addr common.Address, code []byte) (prev []byte) {
 	stateObject := s.getOrNewStateObject(addr)
 	if stateObject != nil {
@@ -730,6 +721,13 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 		newObj.SetBalance(obj.Balance())
 	}
 }
+
+func (s *StateDB) logSelfDestruct(addr common.Address, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSelfDestruct, addr: addr, key: emptyHash, value: emptyHash, node: nil})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
+}
+
 
 // SelfDestruct marks the given account as selfdestructed.
 // This clears the account balance.
@@ -927,11 +925,6 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 func (s *StateDB) getStateObjectLogged(addr common.Address) (*stateObject, []common.Hash, []byte, [][]byte) {
 	// Prefer live objects if any is available
 	if obj := s.stateObjects[addr]; obj != nil {
-		//_, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(addr) 
-		//log.Info("getstateobject", "p", pathHashes)
-		//if err != nil {
-		//	panic(err)
-		//}
 		return obj, nil, nil, nil
 	}
 	// Short circuit if the account is already destructed in this block.
