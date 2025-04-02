@@ -571,6 +571,21 @@ func (s *stateObject) AddBalance(amount *uint256.Int, reason tracing.BalanceChan
 	s.SetBalance(new(uint256.Int).Add(s.Balance(), amount), reason)
 }
 
+func (s *stateObject) AddBalanceLogged(amount *uint256.Int, reason tracing.BalanceChangeReason) {
+	// EIP161: We must check emptiness for the objects such that the account
+	// clearing (0,0,0 objects) can take effect.
+	if amount.IsZero() {
+		if s.empty() {
+			s.touch()
+		}
+		//return s.Balance(), s.Balance()
+        return
+	}
+    newBalance := new(uint256.Int).Add(s.Balance(), amount)
+	s.SetBalance(newBalance, reason)
+    //return oldBalance, newBalance
+}
+
 // SubBalance removes amount from s's balance.
 // It is used to remove funds from the origin account of a transfer.
 func (s *stateObject) SubBalance(amount *uint256.Int, reason tracing.BalanceChangeReason) {
@@ -578,6 +593,17 @@ func (s *stateObject) SubBalance(amount *uint256.Int, reason tracing.BalanceChan
 		return
 	}
 	s.SetBalance(new(uint256.Int).Sub(s.Balance(), amount), reason)
+}
+
+func (s *stateObject) SetBalanceLogged(amount *uint256.Int, reason tracing.BalanceChangeReason) {
+	s.db.journal.append(balanceChange{
+		account: &s.address,
+		prev:    new(uint256.Int).Set(s.data.Balance),
+	})
+	if s.db.logger != nil && s.db.logger.OnBalanceChange != nil {
+		s.db.logger.OnBalanceChange(s.address, s.Balance().ToBig(), amount.ToBig(), reason)
+	}
+	s.setBalance(amount)
 }
 
 func (s *stateObject) SetBalance(amount *uint256.Int, reason tracing.BalanceChangeReason) {

@@ -75,6 +75,8 @@ func (m *mutation) isDelete() bool {
 
 type OpEnum int
 
+var emptyHash = types.EmptyCodeHash
+
 const (
 	OpGetState OpEnum = iota
 	OpGetStorage
@@ -84,6 +86,9 @@ const (
 	OpSetStateCreate
 	OpSetStorage
 	OpSetStorageCreate
+	OpAddBalance
+	OpSubBalance
+	OpSetBalance
 )
 
 type OP struct {
@@ -92,6 +97,7 @@ type OP struct {
 	key common.Hash
 	value common.Hash
 	node []byte
+	amt uint256.Int
 }
 
 // StateDB structs within the ethereum protocol are used to store anything
@@ -573,34 +579,210 @@ func (s *StateDB) HasSelfDestructed(addr common.Address) bool {
  * SETTERS
  */
 
+func (s *StateDB) logAddBalance(addr common.Address, amt uint256.Int) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpAddBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
+func (s *StateDB) logSubBalance(addr common.Address, amt uint256.Int) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSubBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
+func (s *StateDB) logSetBalance(addr common.Address, amt uint256.Int) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
+
 // AddBalance adds amount to the account associated with addr.
 func (s *StateDB) AddBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) {
-	stateObject := s.getOrNewStateObject(addr)
-	if stateObject != nil {
-		s.arbExtraData.unexpectedBalanceDelta.Add(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
-		stateObject.AddBalance(amount, reason)
+	var stateObject *stateObject
+	var pathHashes []common.Hash
+	var rawNodesOnPath [][]byte
+	var valNodeBytes []byte
+	//var prevValue common.Hash
+	var created bool
+	if s.logState {
+		stateObject, valNodeBytes, pathHashes, rawNodesOnPath, created = s.getOrNewStateObjectLogged(addr)
+		if created {
+			// new account created that must be credited
+			if pathHashes != nil || rawNodesOnPath != nil || valNodeBytes != nil {
+				panic("SetState: creating a new object but somehow received a path!")
+			}
+			s.logSetStateCreate(addr, emptyHash, emptyHash, nil, []common.Hash{})
+			//s.logAddBalance(addr, amount)
+		} else {
+			// created is False here!!
+			if pathHashes != nil && rawNodesOnPath != nil {
+				if valNodeBytes == nil {
+					panic("SetState: not a create and never seen this before and valNode is nil")
+				}
+				// this is the first time we're getting this slot so we have to save that
+				// information
+				s.logGetState(addr, emptyHash, emptyHash, valNodeBytes, pathHashes)
+				//s.logAddBalance(addr, amount)
+			} else if pathHashes == nil && rawNodesOnPath == nil {
+				// NOT created and SEEN BEFORE
+				s.logGetState(addr, emptyHash, emptyHash, nil, []common.Hash{})
+				//s.logAddBalance(addr, amount)
+			} else {
+				// it wasn't created and only one of them is nil
+				if s.pathsTaken == nil {
+					panic("SetState: pathHashes is nil but rawNodes isn't.")
+				} else {
+					panic("SetState: rawNodes is nil but pathHashes isn't.")
+				}
+			}
+		}
+		
+		if stateObject != nil {
+			// update the balance
+			// looks like this just logs all the balance deltas that happen in statedb
+			s.arbExtraData.unexpectedBalanceDelta.Add(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
+			s.logAddBalance(addr, *amount)
+			stateObject.AddBalanceLogged(amount, reason)
+		} else {
+			panic("AddBalance: stateObject shouldnever be nil, it is created if nil")
+		}
+	} else {
+		stateObject := s.getOrNewStateObject(addr)
+		if stateObject != nil {
+			s.arbExtraData.unexpectedBalanceDelta.Add(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
+			stateObject.AddBalance(amount, reason)
+		}
 	}
 }
 
 // SubBalance subtracts amount from the account associated with addr.
 func (s *StateDB) SubBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) {
-	stateObject := s.getOrNewStateObject(addr)
-	if stateObject != nil {
-		s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
-		stateObject.SubBalance(amount, reason)
+	var stateObject *stateObject
+	var pathHashes []common.Hash
+	var rawNodesOnPath [][]byte
+	var valNodeBytes []byte
+	//var prevValue common.Hash
+	var created bool
+	if s.logState {
+		stateObject, valNodeBytes, pathHashes, rawNodesOnPath, created = s.getOrNewStateObjectLogged(addr)
+		if created {
+			// new account created that must be credited
+			if pathHashes != nil || rawNodesOnPath != nil || valNodeBytes != nil {
+				panic("SetState: creating a new object but somehow received a path!")
+			}
+			s.logSetStateCreate(addr, emptyHash, emptyHash, nil, []common.Hash{})
+			//s.logAddBalance(addr, amount)
+		} else {
+			// created is False here!!
+			if pathHashes != nil && rawNodesOnPath != nil {
+				if valNodeBytes == nil {
+					panic("SetState: not a create and never seen this before and valNode is nil")
+				}
+				// this is the first time we're getting this slot so we have to save that
+				// information
+				s.logGetState(addr, emptyHash, emptyHash, valNodeBytes, pathHashes)
+				//s.logAddBalance(addr, amount)
+			} else if pathHashes == nil && rawNodesOnPath == nil {
+				// NOT created and SEEN BEFORE
+				s.logGetState(addr, emptyHash, emptyHash, nil, []common.Hash{})
+				//s.logAddBalance(addr, amount)
+			} else {
+				// it wasn't created and only one of them is nil
+				if s.pathsTaken == nil {
+					panic("SetState: pathHashes is nil but rawNodes isn't.")
+				} else {
+					panic("SetState: rawNodes is nil but pathHashes isn't.")
+				}
+			}
+		}
+		
+		if stateObject != nil {
+			// update the balance
+			// looks like this just logs all the balance deltas that happen in statedb
+			s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
+			s.logSubBalance(addr, *amount)
+			stateObject.SubBalance(amount, reason)
+		} else {
+			panic("AddBalance: stateObject shouldnever be nil, it is created if nil")
+		}
+	} else {
+		stateObject := s.getOrNewStateObject(addr)
+		if stateObject != nil {
+			s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
+		}
 	}
 }
 
+//func (s *StateDB) SubBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) {
+//	stateObject := s.getOrNewStateObject(addr)
+//	if stateObject != nil {
+//		s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
+//		stateObject.SubBalance(amount, reason)
+//	}
+//}
+
 func (s *StateDB) SetBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) {
-	stateObject := s.getOrNewStateObject(addr)
-	if stateObject != nil {
-		if amount == nil {
-			amount = uint256.NewInt(0)
+	var stateObject *stateObject
+	var pathHashes []common.Hash
+	var rawNodesOnPath [][]byte
+	var valNodeBytes []byte
+	//var prevValue common.Hash
+	var created bool
+	if s.logState {
+		stateObject, valNodeBytes, pathHashes, rawNodesOnPath, created = s.getOrNewStateObjectLogged(addr)
+		if created {
+			// new account created that must be credited
+			if pathHashes != nil || rawNodesOnPath != nil || valNodeBytes != nil {
+				panic("SetState: creating a new object but somehow received a path!")
+			}
+			s.logSetStateCreate(addr, emptyHash, emptyHash, nil, []common.Hash{})
+			//s.logAddBalance(addr, amount)
+		} else {
+			// created is False here!!
+			if pathHashes != nil && rawNodesOnPath != nil {
+				if valNodeBytes == nil {
+					panic("SetState: not a create and never seen this before and valNode is nil")
+				}
+				// this is the first time we're getting this slot so we have to save that
+				// information
+				s.logGetState(addr, emptyHash, emptyHash, valNodeBytes, pathHashes)
+				//s.logAddBalance(addr, amount)
+			} else if pathHashes == nil && rawNodesOnPath == nil {
+				// NOT created and SEEN BEFORE
+				s.logGetState(addr, emptyHash, emptyHash, nil, []common.Hash{})
+				//s.logAddBalance(addr, amount)
+			} else {
+				// it wasn't created and only one of them is nil
+				if s.pathsTaken == nil {
+					panic("SetState: pathHashes is nil but rawNodes isn't.")
+				} else {
+					panic("SetState: rawNodes is nil but pathHashes isn't.")
+				}
+			}
 		}
-		prevBalance := stateObject.Balance()
-		s.arbExtraData.unexpectedBalanceDelta.Add(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
-		s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, prevBalance.ToBig())
-		stateObject.SetBalance(amount, reason)
+		if stateObject != nil {
+			if amount == nil {
+				amount = uint256.NewInt(0)
+			}
+			prevBalance := stateObject.Balance()
+			s.arbExtraData.unexpectedBalanceDelta.Add(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
+			s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, prevBalance.ToBig())
+			s.logSetBalance(addr, *amount)
+			stateObject.SetBalance(amount, reason)
+		}
+	} else {
+		stateObject := s.getOrNewStateObject(addr)
+		if stateObject != nil {
+			if amount == nil {
+				amount = uint256.NewInt(0)
+			}
+			prevBalance := stateObject.Balance()
+			s.arbExtraData.unexpectedBalanceDelta.Add(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
+			s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, prevBalance.ToBig())
+			stateObject.SetBalance(amount, reason)
+		}
 	}
 }
 
@@ -636,7 +818,6 @@ func (s *StateDB) logSetState(addr common.Address, key common.Hash, value common
 	s.pathsTaken = append(s.pathsTaken, pathsTaken)
 	s.totalOps = s.totalOps + 1
 }
-
 
 func (s *StateDB) SetState(addr common.Address, key, value common.Hash) {
 	var stateObject *stateObject
