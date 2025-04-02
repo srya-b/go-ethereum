@@ -89,6 +89,7 @@ const (
 	OpAddBalance
 	OpSubBalance
 	OpSetBalance
+	OpSetNonce
 )
 
 type OP struct {
@@ -793,10 +794,61 @@ func (s *StateDB) ExpectBalanceBurn(amount *big.Int) {
 	s.arbExtraData.unexpectedBalanceDelta.Add(s.arbExtraData.unexpectedBalanceDelta, amount)
 }
 
+func (s *StateDB) logSetNonce(addr common.Address, amt uint256.Int) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
+
 func (s *StateDB) SetNonce(addr common.Address, nonce uint64) {
-	stateObject := s.getOrNewStateObject(addr)
-	if stateObject != nil {
-		stateObject.SetNonce(nonce)
+	var stateObject *stateObject
+	var pathHashes []common.Hash
+	var rawNodesOnPath [][]byte
+	var valNodeBytes []byte
+	//var prevValue common.Hash
+	var created bool
+	if s.logState {
+		stateObject, valNodeBytes, pathHashes, rawNodesOnPath, created = s.getOrNewStateObjectLogged(addr)
+		if created {
+			// new account created that must be credited
+			if pathHashes != nil || rawNodesOnPath != nil || valNodeBytes != nil {
+				panic("SetState: creating a new object but somehow received a path!")
+			}
+			s.logSetStateCreate(addr, emptyHash, emptyHash, nil, []common.Hash{})
+			//s.logAddBalance(addr, amount)
+		} else {
+			// created is False here!!
+			if pathHashes != nil && rawNodesOnPath != nil {
+				if valNodeBytes == nil {
+					panic("SetState: not a create and never seen this before and valNode is nil")
+				}
+				// this is the first time we're getting this slot so we have to save that
+				// information
+				s.logGetState(addr, emptyHash, emptyHash, valNodeBytes, pathHashes)
+				//s.logAddBalance(addr, amount)
+			} else if pathHashes == nil && rawNodesOnPath == nil {
+				// NOT created and SEEN BEFORE
+				s.logGetState(addr, emptyHash, emptyHash, nil, []common.Hash{})
+				//s.logAddBalance(addr, amount)
+			} else {
+				// it wasn't created and only one of them is nil
+				if s.pathsTaken == nil {
+					panic("SetState: pathHashes is nil but rawNodes isn't.")
+				} else {
+					panic("SetState: rawNodes is nil but pathHashes isn't.")
+				}
+			}
+		}
+		if stateObject != nil {
+			stateObject.SetNonce(nonce)
+			s.logSetNonce(addr, *(uint256.NewInt(nonce)))
+		}
+	} else {
+		stateObject := s.getOrNewStateObject(addr)
+		if stateObject != nil {
+			stateObject.SetNonce(nonce)
+		}
 	}
 }
 
