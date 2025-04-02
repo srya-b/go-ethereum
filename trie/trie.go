@@ -32,6 +32,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie/trienode"
 	"github.com/ethereum/go-ethereum/triedb/database"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 // Trie is a Merkle Patricia Trie. Use New to create a trie that sits on
@@ -166,43 +167,76 @@ func (t *Trie) Get(key []byte) ([]byte, error) {
 	return value, err
 }
 
-func (t *Trie) GetLogged(key []byte) ([]byte, []common.Hash, error) {
+func (t *Trie) GetLogged(key []byte) ([]byte, []common.Hash, [][]byte, error) {
 	// Short circuit if the trie is already committed and not usable.
 	if t.committed {
-		return nil, nil, ErrCommitted
+		return nil, nil, nil, ErrCommitted
 	}
-	value, pathHashes, newroot, didResolve, err := t.getLogged(t.root, keybytesToHex(key), 0)
+	value, pathHashes, rawNodesOnPath, newroot, didResolve, err := t.getLogged(t.root, keybytesToHex(key), 0)
+	//log.Info("GetLogged", "p", pathHashes)
 	if err == nil && didResolve {
 		t.root = newroot
 	}
-	return value, pathHashes, err
+	return value, pathHashes, rawNodesOnPath, err
 }
 
 // for now return the hashes of all the nodes visited, then we can use the root string to confirm and check
-func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, pathHashes []common.Hash, newnode node, didResolve bool, err error) {
+func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, pathHashes []common.Hash, nodes [][]byte, newnode node, didResolve bool, err error) {
 	switch n := (origNode).(type) {
 	case nil:
 		pathHashes = []common.Hash{}
-		return nil, pathHashes, nil, false, nil
+		nodes = [][]byte{}
+		return nil, pathHashes, nodes, nil, false, nil
 	case valueNode:
 		//log.Warn("Value node", "n", n)
 		pathHashes = []common.Hash{HashNode(n)}
-		return n, pathHashes, n, false, nil
+		//rawn, err := rlp.EncodeToBytes(n)
+		//if err != nil {
+		//	panic(err)
+		//}
+		rawn, err := rlp.EncodeToBytes(n)
+		if err != nil {
+			panic(err)
+		}
+		nodes = [][]byte{rawn}
+		return n, pathHashes, nodes, n, false, nil
 	case *shortNode:
 		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
 			// key not found in trie
-			return nil, nil, n, false, nil
+			return nil, nil, nil, n, false, nil
 		}
-		value, pathHashes, newnode, didResolve, err = t.getLogged(n.Val, key, pos+len(n.Key))
-		pathHashes = append([]common.Hash{HashNode(n)}, pathHashes...)
+		value, pathHashes, nodes, newnode, didResolve, err = t.getLogged(n.Val, key, pos+len(n.Key))
+		// hash the child of the short node
+		//hval := HashNode(n.Val)
+		// new short node 
+		newsn := &shortNode{n.Key, n.Val, nodeFlag{dirty: false}}
+		newrawn, err := rlp.EncodeToBytes(newsn)
+		if err != nil {
+			panic(err)
+		}
+		nodes = append([][]byte{newrawn}, nodes...)
+		pathHashes = append([]common.Hash{HashNode(newsn)}, pathHashes...)
+		// below a hashNode might become another node if resolved
 		if err == nil && didResolve {
 			n = n.copy()
 			n.Val = newnode
 		}
-		return value, pathHashes, n, didResolve, err
+		return value, pathHashes, nodes, n, didResolve, err
 	case *fullNode:
-		value, pathHashes, newnode, didResolve, err = t.getLogged(n.Children[key[pos]], key, pos+1)
-		pathHashes = append([]common.Hash{HashNode(n)}, pathHashes...)
+		value, pathHashes, nodes, newnode, didResolve, err = t.getLogged(n.Children[key[pos]], key, pos+1)
+		// convert all children to hashnodes
+		var hChildren [17]node
+		//hChildren = make([]node, 17)
+		for i, c := range &n.Children {
+			hChildren[i] = HashNodeAsHashNode(c)
+		}		
+		newfn := &fullNode{hChildren, nodeFlag{dirty: false}}
+		rawnewfn, err := rlp.EncodeToBytes(newfn)
+		if err != nil {
+			panic(err)
+		}
+		pathHashes = append([]common.Hash{HashNode(newfn)}, pathHashes...)
+		nodes = append([][]byte{rawnewfn}, nodes...)
 		if err == nil && didResolve {
 			n = n.copy()
 			n.Children[key[pos]] = newnode
@@ -211,15 +245,15 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 		//log.Info("Full Node Hash", "h", HashNode(n))
 		//h, _ := t.hashRoot()
 		//log.Info("roothash", "h", h)
-		return value, pathHashes, n, didResolve, err
+		return value, pathHashes, nodes, n, didResolve, err
 	case hashNode:
 		// skip hashNodes because they're just references
 		child, err := t.resolveAndTrack(n, key[:pos])
 		if err != nil {
-			return nil, nil, n, true, err
+			return nil, nil, nil, n, true, err
 		}
-		value, pathHashes, newnode, _, err := t.getLogged(child, key, pos)
-		return value, pathHashes, newnode, true, err
+		value, pathHashes, nodes, newnode, _, err := t.getLogged(child, key, pos)
+		return value, pathHashes, nodes, newnode, true, err
 	default:
 		panic(fmt.Sprintf("%T: invalid node: %v", origNode, origNode))
 	}

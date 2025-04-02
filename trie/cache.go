@@ -692,6 +692,7 @@ func (t *ValidatorTrie) ValueNodeExists(n node, key []byte, pos int, path []int)
 	default: panic(fmt.Sprintf("%T: invalid node: %v", n, n))
 	}
 }
+
 func (t *ValidatorTrie) GetShortNodeChild(n *shortNode) (valueNode, bool) {
 	switch c := (n.Val).(type) {
 	case valueNode:
@@ -3276,6 +3277,11 @@ func HashNode (n node) common.Hash {
 	default: return common.BytesToHash(hash.(hashNode))
 	}
 	//return common.BytesToHash(hash)
+}
+
+func HashNodeAsHashNode(n node) node {
+	hash := hashArbitraryNode(n)
+	return hash
 }
 
 func (t *ValidatorTrie) NodeFromPrefix(prefix []byte) (node, bool) {
