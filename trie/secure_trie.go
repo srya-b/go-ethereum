@@ -122,13 +122,13 @@ func (t *StateTrie) GetStorage(_ common.Address, key []byte) ([]byte, error) {
 	return content, err
 }
 
-func (t *StateTrie) GetStorageLogged(_ common.Address, key []byte) ([]byte, error) {
-	enc, _, err := t.trie.GetLogged(t.hashKey(key))
+func (t *StateTrie) GetStorageLogged(_ common.Address, key []byte) ([]byte, []common.Hash, [][]byte, error) {
+	enc, pathHashes, rawNodesOnPath, err := t.trie.GetLogged(t.hashKey(key))
 	if err != nil || len(enc) == 0 {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	_, content, _, err := rlp.Split(enc)
-	return content, err
+	return content, pathHashes, rawNodesOnPath, err
 }
 
 // GetAccount attempts to retrieve an account with provided account address.
@@ -145,14 +145,15 @@ func (t *StateTrie) GetAccount(address common.Address) (*types.StateAccount, err
 	return ret, err
 }
 
-func (t *StateTrie) GetAccountLogged(address common.Address) (*types.StateAccount, []common.Hash, error) {
-	res, pathHashes, err := t.trie.GetLogged(t.hashKey(address.Bytes()))
+func (t *StateTrie) GetAccountLogged(address common.Address) (*types.StateAccount, []byte, []common.Hash, [][]byte, error) {
+	res, pathHashes, rawNodesOnPath, err := t.trie.GetLogged(t.hashKey(address.Bytes()))
+	//log.Info("GetAccountLogged", "p", pathHashes)
 	if res == nil || err != nil {
-		return nil, []common.Hash{}, err
+		return nil, nil, nil, nil, err
 	}
 	ret := new(types.StateAccount)
 	err = rlp.DecodeBytes(res, ret)
-	return ret, pathHashes, err
+	return ret, res, pathHashes, rawNodesOnPath, err
 }
 
 
