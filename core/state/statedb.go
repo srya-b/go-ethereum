@@ -84,6 +84,7 @@ const (
 	OpAddBalance
 	OpSubBalance
 	OpSetBalance
+	OpSetNonce
 )
 
 type OP struct {
@@ -647,6 +648,13 @@ func (s *StateDB) ExpectBalanceBurn(amount *big.Int) {
 	}
 	s.arbExtraData.unexpectedBalanceDelta.Add(s.arbExtraData.unexpectedBalanceDelta, amount)
 }
+
+func (s *StateDB) logSetNonce(addr common.Address, amt uint256.Int) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
 
 func (s *StateDB) SetNonce(addr common.Address, nonce uint64, reason tracing.NonceChangeReason) {
 	stateObject := s.getOrNewStateObject(addr)
