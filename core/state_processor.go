@@ -28,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+    "github.com/ethereum/go-ethereum/log"
 )
 
 // StateProcessor is a basic Processor, which takes care of transitioning
@@ -126,6 +127,7 @@ func ApplyTransactionWithEVM(msg *Message, config *params.ChainConfig, gp *GasPo
 	if err != nil {
 		return nil, nil, err
 	}
+    //log.Info("Applywithevm", "ops", statedb.TotalOps, "p", statedb.PathsTaken)
 
 	if resultFilter != nil {
 		err = resultFilter(result)
@@ -141,6 +143,7 @@ func ApplyTransactionWithEVM(msg *Message, config *params.ChainConfig, gp *GasPo
 	} else {
 		root = statedb.IntermediateRoot(config.IsEIP158(blockNumber)).Bytes()
 	}
+    //log.Info("Applywithevm after finalise", "ops", statedb.TotalOps, "p", statedb.PathsTaken)
 	*usedGas += result.UsedGas
 
 	// Create a new receipt for the transaction, storing the intermediate root and gas used
@@ -192,6 +195,23 @@ func ApplyTransactionWithResultFilter(config *params.ChainConfig, bc ChainContex
 	txContext := NewEVMTxContext(msg)
 	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
 	return ApplyTransactionWithEVM(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv, resultFilter)
+}
+
+func ApplyTransactionWithResultFilterUnique(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config, runMode MessageRunMode, resultFilter func(*ExecutionResult) error) (*types.Receipt, *ExecutionResult, [][]common.Hash, []state.OP, int, error) {
+	msg, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee, runMode)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+	// Create a new context to be used in the EVM environment
+	blockContext := NewEVMBlockContext(header, bc, author)
+	txContext := NewEVMTxContext(msg)
+	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
+	rc, er, err2 := ApplyTransactionWithEVM(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv, resultFilter)
+    log.Info("Applyresultfilter", "ops", statedb.TotalOps, "p", statedb.PathsTaken)
+    pathsTaken := statedb.PathsTaken()
+    opsCalled := statedb.OpsCalled()
+    totalOps := statedb.TotalOps()
+    return rc, er, pathsTaken, opsCalled, totalOps, err2
 }
 
 // ProcessBeaconBlockRoot applies the EIP-4788 system call to the beacon block root

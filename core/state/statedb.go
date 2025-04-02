@@ -73,12 +73,26 @@ func (m *mutation) isDelete() bool {
 	return m.typ == deletion
 }
 
-type OP int
+type OpEnum int
 
 const (
-	GetState OP = iota
-	SetState
+	OpGetState OpEnum = iota
+	OpGetStorage
+	OpGetStorageMiss
+	OpSetState
+	OpSetStateMiss
+	OpSetStateCreate
+	OpSetStorage
+	OpSetStorageCreate
 )
+
+type OP struct {
+	op	OpEnum
+	addr common.Address
+	key common.Hash
+	value common.Hash
+	node []byte
+}
 
 // StateDB structs within the ethereum protocol are used to store anything
 // within the merkle trie. StateDBs take care of caching and storing
@@ -188,7 +202,7 @@ type StateDB struct {
 	logState 	  bool
 	pathsTaken    [][]common.Hash  // all of the paths accessed
 	opsCalled 	  []OP			   // what GetState/SetState was called
-	totalOp	      int			   // lenth of opsCalled and length of pathsTaken
+	totalOps	      int			   // lenth of opsCalled and length of pathsTaken
 }
 
 
@@ -225,6 +239,9 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 		transientStorage:     newTransientStorage(),
 		hasher:               crypto.NewKeccakState(),
 		logState:			  false,
+		pathsTaken:			  make([][]common.Hash, 100),
+		opsCalled:			  make([]OP, 100),
+		totalOps:			  0,
 	}
 	if sdb.snaps != nil {
 		sdb.snap = sdb.snaps.Snapshot(root)
@@ -234,6 +251,30 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 
 func (s *StateDB) StartLogger() {
 	s.logState = true
+}
+
+func (s *StateDB) StopLogger() {
+	s.logState = false
+}
+
+func (s *StateDB) PathsTaken() [][]common.Hash {
+	var r [][]common.Hash
+	for _, p := range s.pathsTaken {
+		r = append(r, p)
+	}
+	return r
+}
+
+func (s *StateDB) OpsCalled() []OP {
+	var r []OP
+	for _, o := range s.opsCalled {
+		r = append(r, o)
+	}
+	return r
+}
+
+func (s *StateDB) TotalOps() int {
+	return s.totalOps
 }
 
 func (s* StateDB) RootString() string {
@@ -428,18 +469,82 @@ func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
 }
 
 // GetState retrieves a value from the given account's storage trie.
+// If logger mode is set, GetState stores the trie path explored by a get operation
+// if the object is live then the trie is unchanged and there is nothing to store
+// only when the dirties are processed is there something to do
 func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 	var stateObject *stateObject
+	var pathHashes []common.Hash
+	var rawNodesOnPath [][]byte
+	var valNodeBytes []byte
 	if s.logState {
-		stateObject, _ = s.getStateObjectLogged(addr)
+		stateObject, pathHashes, valNodeBytes, rawNodesOnPath = s.getStateObjectLogged(addr)
+		if pathHashes == nil && rawNodesOnPath == nil {
+			// this means this is a live object so we don't have to do anything but log this access
+			s.logGetState(addr, hash, types.EmptyCodeHash, types.EmptyCodeHash.Bytes(), []common.Hash{})
+			//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: hash, value: types.EmptyCodeHash, node: types.EmptyCodeHash.Bytes()})
+			//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+			//s.totalOps = s.totalOps + 1
+		} else {
+			// add this op to the list of ops
+			//s.opsCalled = append(s.opsCalled, OpGetState)
+			//log.Info("GetState", "p", pathHashes)
+			s.logGetState(addr, hash, types.EmptyCodeHash, valNodeBytes, pathHashes)
+			//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: hash, value: types.EmptyCodeHash, node: valNodeBytes})
+			//s.pathsTaken = append(s.pathsTaken, pathHashes)	
+			//s.totalOps = s.totalOps + 1
+		}
+		if stateObject != nil {
+			var storageObject common.Hash
+			storageObject, pathHashes, rawNodesOnPath = stateObject.GetStateLogged(hash)
+			if pathHashes == nil && rawNodesOnPath == nil {
+				s.logGetStorage(addr, hash, types.EmptyCodeHash, nil, []common.Hash{})
+				//s.opsCalled = append(s.opsCalled, OP{op: OpGetStorage, addr: addr, key: hash, value: types.EmptyCodeHash, node: nil})
+				//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+				//s.totalOps = s.totalOps + 1
+			} else {
+				s.logGetStorage(addr, hash, storageObject, nil, pathHashes)
+				//s.opsCalled = append(s.opsCalled, OP{op: OpGetStorage, addr: addr, key: hash, value: storageObject, node: nil})
+				//s.pathsTaken = append(s.pathsTaken, pathHashes)
+				//s.totalOps = s.totalOps + 1
+			}
+			return storageObject
+		} else {
+			// maybe we didn't find anything, in this case we should record the path taken for validation and that the key wasn't found  
+			if pathHashes == nil || rawNodesOnPath == nil {
+				panic("GetState: stateObject no found and nothing traversed?")
+			}
+			s.logGetStorageMiss(addr, hash, types.EmptyCodeHash, nil, pathHashes)
+			//s.opsCalled = append(s.opsCalled, OP{op: OpGetStorageMiss, addr: addr, key: hash, value: types.EmptyCodeHash, node: nil})
+			//s.pathsTaken = append(s.pathsTaken, pathsTaken)
+			//s.totalOps = s.totalOps + 1
+		}
 	} else {
 		stateObject = s.getStateObject(addr)
-	}
 	
-	if stateObject != nil {
-		return stateObject.GetState(hash)
+		if stateObject != nil {
+			return stateObject.GetState(hash)
+		}
 	}
 	return common.Hash{}
+}
+
+func (s *StateDB) logGetState(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: key, value: value, node: node})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
+}
+
+func (s *StateDB) logGetStorage(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpGetStorage, addr: addr, key: key, value: value, node: node})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
+}
+	
+func (s *StateDB) logGetStorageMiss(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpGetStorageMiss, addr: addr, key: key, value: value, node: node})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
 }
 
 // GetCommittedState retrieves a value from the given account's committed storage trie.
@@ -520,11 +625,106 @@ func (s *StateDB) SetCode(addr common.Address, code []byte) {
 	}
 }
 
+func (s *StateDB) logSetStateCreate(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetStateCreate, addr: addr, key: key, value: value, node: node})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
+}
+
+func (s *StateDB) logSetState(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetStateCreate, addr: addr, key: key, value: value, node: node})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
+}
+
+
 func (s *StateDB) SetState(addr common.Address, key, value common.Hash) {
-	stateObject := s.getOrNewStateObject(addr)
-	if stateObject != nil {
-		stateObject.SetState(key, value)
+	var stateObject *stateObject
+	var pathHashes []common.Hash
+	var rawNodesOnPath [][]byte
+	var valNodeBytes []byte
+	var prevValue common.Hash
+	var created bool
+	if s.logState {
+		// TODO when is stateobject nil
+		stateObject, valNodeBytes, pathHashes, rawNodesOnPath, created = s.getOrNewStateObjectLogged(addr)
+		if created {
+			// new object so nothing to log except the new value
+			if pathHashes != nil || rawNodesOnPath != nil || valNodeBytes != nil {
+				panic("SetState: creating a new object but somehow received a path!")
+			}
+			s.logSetStateCreate(addr, key, value, nil, []common.Hash{})
+			//s.opsCalled = append(s.opsCalled, OP{op: OpSetStateCreate, addr: addr, key: key, value: value})
+			//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+			//s.totalOps = s.totalOps + 1
+		} else {
+			// created is False here!!
+			if pathHashes != nil && rawNodesOnPath != nil {
+				if valNodeBytes == nil {
+					panic("SetState: not a create and never seen this before and valNode is nil")
+				}
+				// this is the first time we're getting this slot so we have to save that
+				// information
+				s.logGetState(addr, key, value, valNodeBytes, pathHashes)
+				//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: key, value: value})
+				//s.pathsTaken = append(s.pathsTaken, pathHashes)
+				//s.totalOps = s.totalOps + 1
+			} else if pathHashes == nil && rawNodesOnPath == nil {
+				// NOT created and SEEN BEFORE
+				s.logGetState(addr, key, value, nil, []common.Hash{})
+				//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: key, value: value})
+				//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+				//s.totalOps = s.totalOps + 1
+			} else {
+				// it wasn't created and only one of them is nil
+				if s.pathsTaken == nil {
+					panic("SetState: pathHashes is nil but rawNodes isn't.")
+				} else {
+					panic("SetState: rawNodes is nil but pathHashes isn't.")
+				}
+			}
+			//s.opsCalled = append(s.opsCalled, OP{op: OpSetState, addr: addr, key: key, value: value})
+			////s.pathsTaken = append(s.pathsTaken, pathHashes)
+			//s.totalOps = s.totalOps + 1
+		}
+		if stateObject != nil {
+			prevValue, pathHashes, rawNodesOnPath = stateObject.SetStateLogged(key, value)
+			if pathHashes == nil && rawNodesOnPath == nil {
+				// we've seen this before so just log the new update we already know what the old value is
+				// no new pathhashes and no valnode created for it
+				s.logSetStorage(addr, key, value, nil, []common.Hash{})
+			} else if pathHashes != nil && rawNodesOnPath != nil {
+				// this means the getStateLogged call accessed something for the first time (this implies it's NOT DIRTY)
+				// so we need to log an OpGetStorage with the value `prevValue` and then a setState with the nwe value
+				s.logGetStorage(addr, key, prevValue, nil, pathHashes)
+				// now we log the change to the key
+				s.logSetStorage(addr, key, value, nil, []common.Hash{})
+			} else {
+				if s.pathsTaken == nil {
+					panic("SetState: pathHashes is nil but rawNodes isn't.")
+				} else {
+					panic("SetState: rawNodes is nil but pathHashes isn't.")
+				}
+			}
+		}
+	} else {
+		stateObject = s.getOrNewStateObject(addr)
+		if stateObject != nil {
+			stateObject.SetState(key, value)
+		}
 	}
+}
+
+func (s *StateDB) logSetStorageCreate(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetStorageCreate, addr: addr, key: key, value: value, node: node})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
+}
+
+func (s *StateDB) logSetStorage(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetStorage, addr: addr, key: key, value: value, node: node})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
 }
 
 // SetStorage replaces the entire storage for the specified account with given
@@ -661,6 +861,7 @@ func (s *StateDB) deleteStateObject(addr common.Address) {
 
 // getStateObject retrieves a state object given by the address, returning nil if
 // the object is not found or was deleted in this execution context.
+// NOTE: this returns only the path taken to get to the specific account node. Another path will be added by GetState which is into the account's trie
 func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	// Prefer live objects if any is available
 	if obj := s.stateObjects[addr]; obj != nil {
@@ -720,14 +921,15 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	//return obj
 }
 
-func (s *StateDB) getStateObjectLogged(addr common.Address) (*stateObject, []common.Hash) {
+func (s *StateDB) getStateObjectLogged(addr common.Address) (*stateObject, []common.Hash, []byte, [][]byte) {
 	// Prefer live objects if any is available
 	if obj := s.stateObjects[addr]; obj != nil {
-		_, pathHashes, err := s.trie.GetAccountLogged(addr) 
-		if err != nil {
-			panic(err)
-		}
-		return obj, pathHashes
+		//_, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(addr) 
+		//log.Info("getstateobject", "p", pathHashes)
+		//if err != nil {
+		//	panic(err)
+		//}
+		return obj, nil, nil, nil
 	}
 	// Short circuit if the account is already destructed in this block.
 	// TODO what to do here?
@@ -735,55 +937,59 @@ func (s *StateDB) getStateObjectLogged(addr common.Address) (*stateObject, []com
 		// let it return here because a destruted object is always known and instantly checked
 		// eventually the advice or whatever can inform that something is destroyed, and we don't
 		// want to cache anything explored here
-		return nil, []common.Hash{}
+		return nil, nil, nil, nil
 	}
 	// If no live objects are available, attempt to use snapshots
 	// NOTE: snapshot reads are out of the question
 	var data *types.StateAccount
-	if s.snap != nil {
-		start := time.Now()
-		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
-		s.SnapshotAccountReads += time.Since(start)
+	//if s.snap != nil {
+	//	log.Info("Went through the snapshot")
+	//	start := time.Now()
+	//	acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
+	//	s.SnapshotAccountReads += time.Since(start)
 
-		if err == nil {
-			if acc == nil {
-				return nil, []common.Hash{}
-			}
-			data = &types.StateAccount{
-				Nonce:    acc.Nonce,
-				Balance:  acc.Balance,
-				CodeHash: acc.CodeHash,
-				Root:     common.BytesToHash(acc.Root),
-			}
-			if len(data.CodeHash) == 0 {
-				data.CodeHash = types.EmptyCodeHash.Bytes()
-			}
-			if data.Root == (common.Hash{}) {
-				data.Root = types.EmptyRootHash
-			}
-		}
-	}
+	//	if err == nil {
+	//		if acc == nil {
+	//			return nil, nil, nil
+	//		}
+	//		data = &types.StateAccount{
+	//			Nonce:    acc.Nonce,
+	//			Balance:  acc.Balance,
+	//			CodeHash: acc.CodeHash,
+	//			Root:     common.BytesToHash(acc.Root),
+	//		}
+	//		if len(data.CodeHash) == 0 {
+	//			data.CodeHash = types.EmptyCodeHash.Bytes()
+	//		}
+	//		if data.Root == (common.Hash{}) {
+	//			data.Root = types.EmptyRootHash
+	//		}
+	//	}
+	//}
 	// If snapshot unavailable or reading from it failed, load from the database
 	var pathHashes []common.Hash
+	var rawNodesOnPath [][]byte
+	var valNodeBytes []byte
 	if data == nil {
+		log.Info("Looking in the trie")
 		start := time.Now()
 		var err error
-		data, pathHashes, err = s.trie.GetAccountLogged(addr)
+		data, valNodeBytes, pathHashes, rawNodesOnPath, err = s.trie.GetAccountLogged(addr)
 		s.AccountReads += time.Since(start)
 
 		// TODO: what to do here
 		if err != nil {
 			s.setError(fmt.Errorf("getDeleteStateObject (%x) error: %w", addr.Bytes(), err))
-			return nil, []common.Hash{}
+			return nil, nil, nil, nil
 		}
 		if data == nil {
-			return nil, []common.Hash{}
+			return nil, nil, nil, nil
 		}
 	}
 	// Insert into the live set
 	obj := newObject(s, addr, data)
 	s.setStateObject(obj)
-	return obj, pathHashes
+	return obj, pathHashes, valNodeBytes, rawNodesOnPath
 	//return obj
 }
 
@@ -802,9 +1008,30 @@ func (s *StateDB) getOrNewStateObject(addr common.Address) *stateObject {
 	return obj
 }
 
+func (s *StateDB) getOrNewStateObjectLogged(addr common.Address) (*stateObject, []byte, []common.Hash, [][]byte, bool) {
+	//obj, pathHashes, rawNodesOnPath := s.getStateObjectLogged(addr)
+	obj, pathHashes, valNodeBytes, rawNodesOnPath := s.getStateObjectLogged(addr)
+	if obj == nil {
+		if pathHashes != nil || rawNodesOnPath != nil {
+			panic("No state object, but getStateObjectLogged returns a path")
+		}
+		// in the case of create object, there's nothing to add to the logger
+		obj = s.createObjectLogged(addr)
+		return obj, nil, nil, nil, true
+	}
+	return obj, valNodeBytes, pathHashes, rawNodesOnPath, false
+}
+
 // createObject creates a new state object. The assumption is held there is no
 // existing account with the given address, otherwise it will be silently overwritten.
 func (s *StateDB) createObject(addr common.Address) *stateObject {
+	obj := newObject(s, addr, nil)
+	s.journal.append(createObjectChange{account: &addr})
+	s.setStateObject(obj)
+	return obj
+}
+
+func (s *StateDB) createObjectLogged(addr common.Address) *stateObject {
 	obj := newObject(s, addr, nil)
 	s.journal.append(createObjectChange{account: &addr})
 	s.setStateObject(obj)
