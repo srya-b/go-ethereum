@@ -90,6 +90,8 @@ const (
 	OpSubBalance
 	OpSetBalance
 	OpSetNonce
+	OpSetCode
+	OpSelfDestruct
 )
 
 type OP struct {
@@ -489,31 +491,17 @@ func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 		if pathHashes == nil && rawNodesOnPath == nil {
 			// this means this is a live object so we don't have to do anything but log this access
 			s.logGetState(addr, hash, types.EmptyCodeHash, types.EmptyCodeHash.Bytes(), []common.Hash{})
-			//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: hash, value: types.EmptyCodeHash, node: types.EmptyCodeHash.Bytes()})
-			//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-			//s.totalOps = s.totalOps + 1
 		} else {
 			// add this op to the list of ops
-			//s.opsCalled = append(s.opsCalled, OpGetState)
-			//log.Info("GetState", "p", pathHashes)
 			s.logGetState(addr, hash, types.EmptyCodeHash, valNodeBytes, pathHashes)
-			//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: hash, value: types.EmptyCodeHash, node: valNodeBytes})
-			//s.pathsTaken = append(s.pathsTaken, pathHashes)	
-			//s.totalOps = s.totalOps + 1
 		}
 		if stateObject != nil {
 			var storageObject common.Hash
 			storageObject, pathHashes, rawNodesOnPath = stateObject.GetStateLogged(hash)
 			if pathHashes == nil && rawNodesOnPath == nil {
 				s.logGetStorage(addr, hash, types.EmptyCodeHash, nil, []common.Hash{})
-				//s.opsCalled = append(s.opsCalled, OP{op: OpGetStorage, addr: addr, key: hash, value: types.EmptyCodeHash, node: nil})
-				//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-				//s.totalOps = s.totalOps + 1
 			} else {
 				s.logGetStorage(addr, hash, storageObject, nil, pathHashes)
-				//s.opsCalled = append(s.opsCalled, OP{op: OpGetStorage, addr: addr, key: hash, value: storageObject, node: nil})
-				//s.pathsTaken = append(s.pathsTaken, pathHashes)
-				//s.totalOps = s.totalOps + 1
 			}
 			return storageObject
 		} else {
@@ -522,9 +510,6 @@ func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 				panic("GetState: stateObject no found and nothing traversed?")
 			}
 			s.logGetStorageMiss(addr, hash, types.EmptyCodeHash, nil, pathHashes)
-			//s.opsCalled = append(s.opsCalled, OP{op: OpGetStorageMiss, addr: addr, key: hash, value: types.EmptyCodeHash, node: nil})
-			//s.pathsTaken = append(s.pathsTaken, pathsTaken)
-			//s.totalOps = s.totalOps + 1
 		}
 	} else {
 		stateObject = s.getStateObject(addr)
@@ -852,10 +837,61 @@ func (s *StateDB) SetNonce(addr common.Address, nonce uint64) {
 	}
 }
 
+func (s *StateDB) logSetCode(addr common.Address, codeHash []byte) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetCode, addr: addr, key: emptyHash, value: emptyHash, node: codeHash})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
 func (s *StateDB) SetCode(addr common.Address, code []byte) {
-	stateObject := s.getOrNewStateObject(addr)
-	if stateObject != nil {
-		stateObject.SetCode(crypto.Keccak256Hash(code), code)
+	var stateObject *stateObject
+	var pathHashes []common.Hash
+	var rawNodesOnPath [][]byte
+	var valNodeBytes []byte
+	//var prevValue common.Hash
+	var created bool
+	if s.logState {
+		stateObject, valNodeBytes, pathHashes, rawNodesOnPath, created = s.getOrNewStateObjectLogged(addr)
+		if created {
+			// new account created that must be credited
+			if pathHashes != nil || rawNodesOnPath != nil || valNodeBytes != nil {
+				panic("SetState: creating a new object but somehow received a path!")
+			}
+			s.logSetStateCreate(addr, emptyHash, emptyHash, nil, []common.Hash{})
+			//s.logAddBalance(addr, amount)
+		} else {
+			// created is False here!!
+			if pathHashes != nil && rawNodesOnPath != nil {
+				if valNodeBytes == nil {
+					panic("SetState: not a create and never seen this before and valNode is nil")
+				}
+				// this is the first time we're getting this slot so we have to save that
+				// information
+				s.logGetState(addr, emptyHash, emptyHash, valNodeBytes, pathHashes)
+				//s.logAddBalance(addr, amount)
+			} else if pathHashes == nil && rawNodesOnPath == nil {
+				// NOT created and SEEN BEFORE
+				s.logGetState(addr, emptyHash, emptyHash, nil, []common.Hash{})
+				//s.logAddBalance(addr, amount)
+			} else {
+				// it wasn't created and only one of them is nil
+				if s.pathsTaken == nil {
+					panic("SetState: pathHashes is nil but rawNodes isn't.")
+				} else {
+					panic("SetState: rawNodes is nil but pathHashes isn't.")
+				}
+			}
+		}
+		if stateObject != nil {
+			stateObject.SetCode(crypto.Keccak256Hash(code), code)
+			// TODO: for now we don't store the real code just the hash
+			s.logSetCode(addr, crypto.Keccak256Hash(code).Bytes())
+		}
+	} else {
+		stateObject := s.getOrNewStateObject(addr)
+		if stateObject != nil {
+			stateObject.SetCode(crypto.Keccak256Hash(code), code)
+		}
 	}
 }
 
@@ -887,9 +923,6 @@ func (s *StateDB) SetState(addr common.Address, key, value common.Hash) {
 				panic("SetState: creating a new object but somehow received a path!")
 			}
 			s.logSetStateCreate(addr, key, value, nil, []common.Hash{})
-			//s.opsCalled = append(s.opsCalled, OP{op: OpSetStateCreate, addr: addr, key: key, value: value})
-			//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-			//s.totalOps = s.totalOps + 1
 		} else {
 			// created is False here!!
 			if pathHashes != nil && rawNodesOnPath != nil {
@@ -899,15 +932,9 @@ func (s *StateDB) SetState(addr common.Address, key, value common.Hash) {
 				// this is the first time we're getting this slot so we have to save that
 				// information
 				s.logGetState(addr, key, value, valNodeBytes, pathHashes)
-				//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: key, value: value})
-				//s.pathsTaken = append(s.pathsTaken, pathHashes)
-				//s.totalOps = s.totalOps + 1
 			} else if pathHashes == nil && rawNodesOnPath == nil {
 				// NOT created and SEEN BEFORE
 				s.logGetState(addr, key, value, nil, []common.Hash{})
-				//s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: key, value: value})
-				//s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-				//s.totalOps = s.totalOps + 1
 			} else {
 				// it wasn't created and only one of them is nil
 				if s.pathsTaken == nil {
@@ -916,9 +943,6 @@ func (s *StateDB) SetState(addr common.Address, key, value common.Hash) {
 					panic("SetState: rawNodes is nil but pathHashes isn't.")
 				}
 			}
-			//s.opsCalled = append(s.opsCalled, OP{op: OpSetState, addr: addr, key: key, value: value})
-			////s.pathsTaken = append(s.pathsTaken, pathHashes)
-			//s.totalOps = s.totalOps + 1
 		}
 		if stateObject != nil {
 			prevValue, pathHashes, rawNodesOnPath = stateObject.SetStateLogged(key, value)
@@ -981,32 +1005,76 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 	}
 }
 
+func (s *StateDB) logSelfDestruct(addr common.Address, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSelfDestruct, addr: addr, key: emptyHash, value: emptyHash, node: nil})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
+}
+
+
 // SelfDestruct marks the given account as selfdestructed.
 // This clears the account balance.
 //
 // The account's state object is still available until the state is committed,
 // getStateObject will return a non-nil account after SelfDestruct.
 func (s *StateDB) SelfDestruct(addr common.Address) {
-	stateObject := s.getStateObject(addr)
-	if stateObject == nil {
-		return
-	}
-	var (
-		prev = new(uint256.Int).Set(stateObject.Balance())
-		n    = new(uint256.Int)
-	)
-	s.journal.append(selfDestructChange{
-		account:     &addr,
-		prev:        stateObject.selfDestructed,
-		prevbalance: prev,
-	})
+	var stateObject *stateObject
+	var pathHashes []common.Hash
+	var rawNodesOnPath [][]byte
+	var valNodeBytes []byte
+	if s.logState {
+		stateObject, pathHashes, valNodeBytes, rawNodesOnPath = s.getStateObjectLogged(addr)
+		if pathHashes == nil && rawNodesOnPath == nil {
+			// this means this is a live object so we don't have to do anything but log this access
+			s.logGetState(addr, emptyHash, emptyHash, emptyHash.Bytes(), []common.Hash{})
+		} else {
+			// add this op to the list of ops
+			s.logGetState(addr, emptyHash, emptyHash, valNodeBytes, pathHashes)
+		}
+		if stateObject == nil {
+			// log destruct something that doesn't exist
+			s.logSelfDestruct(common.MaxAddress, []common.Hash{})
+			return
+		}
+		var (
+			prev = new(uint256.Int).Set(stateObject.Balance())
+			n    = new(uint256.Int)
+		)
+		s.journal.append(selfDestructChange{
+			account:     &addr,
+			prev:        stateObject.selfDestructed,
+			prevbalance: prev,
+		})
 
-	if s.logger != nil && s.logger.OnBalanceChange != nil && prev.Sign() > 0 {
-		s.logger.OnBalanceChange(addr, prev.ToBig(), n.ToBig(), tracing.BalanceDecreaseSelfdestruct)
+		if s.logger != nil && s.logger.OnBalanceChange != nil && prev.Sign() > 0 {
+			s.logger.OnBalanceChange(addr, prev.ToBig(), n.ToBig(), tracing.BalanceDecreaseSelfdestruct)
+		}
+		s.logSelfDestruct(addr, []common.Hash{})
+		stateObject.markSelfdestructed()
+		s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, stateObject.data.Balance.ToBig())
+		stateObject.data.Balance = n
+	} else {
+		stateObject := s.getStateObject(addr)
+		if stateObject == nil {
+			return
+		}
+		var (
+			prev = new(uint256.Int).Set(stateObject.Balance())
+			n    = new(uint256.Int)
+		)
+		s.journal.append(selfDestructChange{
+			account:     &addr,
+			prev:        stateObject.selfDestructed,
+			prevbalance: prev,
+		})
+
+		if s.logger != nil && s.logger.OnBalanceChange != nil && prev.Sign() > 0 {
+			s.logger.OnBalanceChange(addr, prev.ToBig(), n.ToBig(), tracing.BalanceDecreaseSelfdestruct)
+		}
+		stateObject.markSelfdestructed()
+		s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, stateObject.data.Balance.ToBig())
+		stateObject.data.Balance = n
 	}
-	stateObject.markSelfdestructed()
-	s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, stateObject.data.Balance.ToBig())
-	stateObject.data.Balance = n
 }
 
 func (s *StateDB) Selfdestruct6780(addr common.Address) {
@@ -1157,11 +1225,6 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 func (s *StateDB) getStateObjectLogged(addr common.Address) (*stateObject, []common.Hash, []byte, [][]byte) {
 	// Prefer live objects if any is available
 	if obj := s.stateObjects[addr]; obj != nil {
-		//_, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(addr) 
-		//log.Info("getstateobject", "p", pathHashes)
-		//if err != nil {
-		//	panic(err)
-		//}
 		return obj, nil, nil, nil
 	}
 	// Short circuit if the account is already destructed in this block.
