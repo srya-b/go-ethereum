@@ -84,6 +84,7 @@ const (
 	OpAddBalance
 	OpSubBalance
 	OpSetBalance
+	OpSetNonce
 )
 
 type OP struct {
