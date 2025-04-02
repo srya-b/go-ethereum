@@ -601,6 +601,32 @@ func (s *stateObject) AddBalance(amount *uint256.Int) uint256.Int {
 }
 
 // SetBalance sets the balance for the object, and returns the previous balance.
+func (s *stateObject) AddBalanceLogged(amount *uint256.Int, reason tracing.BalanceChangeReason) {
+	// EIP161: We must check emptiness for the objects such that the account
+	// clearing (0,0,0 objects) can take effect.
+	if amount.IsZero() {
+		if s.empty() {
+			s.touch()
+		}
+		//return s.Balance(), s.Balance()
+        return
+	}
+    newBalance := new(uint256.Int).Add(s.Balance(), amount)
+	s.SetBalance(newBalance, reason)
+    //return oldBalance, newBalance
+}
+
+func (s *stateObject) SetBalanceLogged(amount *uint256.Int, reason tracing.BalanceChangeReason) {
+	s.db.journal.append(balanceChange{
+		account: &s.address,
+		prev:    new(uint256.Int).Set(s.data.Balance),
+	})
+	if s.db.logger != nil && s.db.logger.OnBalanceChange != nil {
+		s.db.logger.OnBalanceChange(s.address, s.Balance().ToBig(), amount.ToBig(), reason)
+	}
+	s.setBalance(amount)
+}
+
 func (s *stateObject) SetBalance(amount *uint256.Int) uint256.Int {
 	prev := *s.data.Balance
 	s.db.journal.balanceChange(s.address, s.data.Balance)

@@ -70,6 +70,8 @@ func (m *mutation) isDelete() bool {
 
 type OpEnum int
 
+var emptyHash = types.EmptyCodeHash
+
 const (
 	OpGetState OpEnum = iota
 	OpGetStorage
@@ -79,6 +81,9 @@ const (
 	OpSetStateCreate
 	OpSetStorage
 	OpSetStorageCreate
+	OpAddBalance
+	OpSubBalance
+	OpSetBalance
 )
 
 type OP struct {
@@ -87,6 +92,7 @@ type OP struct {
 	key common.Hash
 	value common.Hash
 	node []byte
+	amt uint256.Int
 }
 
 // StateDB structs within the ethereum protocol are used to store anything
@@ -572,6 +578,25 @@ func (s *StateDB) HasSelfDestructed(addr common.Address) bool {
  * SETTERS
  */
 
+func (s *StateDB) logAddBalance(addr common.Address, amt uint256.Int) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpAddBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
+func (s *StateDB) logSubBalance(addr common.Address, amt uint256.Int) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSubBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
+func (s *StateDB) logSetBalance(addr common.Address, amt uint256.Int) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
+
 // AddBalance adds amount to the account associated with addr.
 func (s *StateDB) AddBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	stateObject := s.getOrNewStateObject(addr)
@@ -594,6 +619,14 @@ func (s *StateDB) SubBalance(addr common.Address, amount *uint256.Int, reason tr
 	s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
 	return stateObject.SetBalance(new(uint256.Int).Sub(stateObject.Balance(), amount))
 }
+
+//func (s *StateDB) SubBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) {
+//	stateObject := s.getOrNewStateObject(addr)
+//	if stateObject != nil {
+//		s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
+//		stateObject.SubBalance(amount, reason)
+//	}
+//}
 
 func (s *StateDB) SetBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) {
 	stateObject := s.getOrNewStateObject(addr)
