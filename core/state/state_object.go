@@ -157,6 +157,29 @@ func (s *stateObject) GetState(key common.Hash) common.Hash {
 	return value
 }
 
+func (s *stateObject) GetStateLogged(key common.Hash) (common.Hash, []common.Hash, [][]byte) {
+	value, pathHashes, rawNodesOnPath, _ := s.getStateLogged(key)
+	return value, pathHashes, rawNodesOnPath
+}
+
+// getState retrieves a value from the account storage trie and also returns if
+// the slot is already dirty or not.
+func (s *stateObject) getStateLogged(key common.Hash) (common.Hash, []common.Hash, [][]byte, bool) {
+	// If we have a dirty value for this state entry, return it
+    // if the entry is dirty, then we return this only and no trie accesses are done.
+    // The function calling this should interpret this as a live access because no
+    // path information is given
+	value, dirty := s.dirtyStorage[key]
+	if dirty {
+		return value, nil, nil, true
+	}
+	// Otherwise return the entry's original value
+    storageHash, pathHashes, rawNodesOnPath := s.GetCommittedStateLogged(key)
+	return storageHash, pathHashes, rawNodesOnPath, false
+}
+
+//func (s *stateObject) getState(key common.Hash) (common.Hash, bool) {
+//	// If we have a dirty value for this state entry, return it
 // getState retrieves a value associated with the given storage key, along with
 // its original value.
 func (s *stateObject) getState(key common.Hash) (common.Hash, common.Hash) {
@@ -166,6 +189,71 @@ func (s *stateObject) getState(key common.Hash) (common.Hash, common.Hash) {
 		return value, origin
 	}
 	return origin, origin
+}
+
+// GetCommittedState retrieves a value from the committed account storage trie.
+func (s *stateObject) GetCommittedStateLogged(key common.Hash) (common.Hash, []common.Hash, [][]byte) {
+	// If we have a pending write or clean cached, return that
+    // NOTE: being in pending means we've already seen this key, and it was "finalised"
+    // and it was moved from dirty to pending but not committed so don't need anything
+    // extra here
+	if value, pending := s.pendingStorage[key]; pending {
+		return value, nil, nil
+	}
+    // NOTE: this means that it was read from the trie once and is unchanged
+    // so we already have the trie path, don't need to save it again we can look
+    // it up in previous data
+	if value, cached := s.originStorage[key]; cached {
+		return value, nil, nil
+	}
+	// If the object was destructed in *this* block (and potentially resurrected),
+	// the storage has been cleared out, and we should *not* consult the previous
+	// database about any storage values. The only possible alternatives are:
+	//   1) resurrect happened, and new slot values were set -- those should
+	//      have been handles via pendingStorage above.
+	//   2) we don't have new values, and can deliver empty response back
+    // TODO: what to do here
+	if _, destructed := s.db.stateObjectsDestruct[s.address]; destructed {
+		return common.Hash{}, nil, nil
+	}
+	// If no live objects are available, attempt to use snapshots
+	var (
+		//enc   []byte
+		err   error
+		value common.Hash
+	)
+	//if s.db.snap != nil {
+	//	start := time.Now()
+	//	enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
+	//	s.db.SnapshotStorageReads += time.Since(start)
+
+	//	if len(enc) > 0 {
+	//		_, content, _, err := rlp.Split(enc)
+	//		if err != nil {
+	//			s.db.setError(err)
+	//		}
+	//		value.SetBytes(content)
+	//	}
+	//}
+	// If the snapshot is unavailable or reading from it fails, load from the database.
+	//if s.db.snap == nil || err != nil {
+	start := time.Now()
+	tr, err := s.getTrie()
+	if err != nil {
+		s.db.setError(err)
+		return common.Hash{}, nil, nil
+	}
+	val, pathHashes, rawNodesOnPath, err := tr.GetStorageLogged(s.address, key.Bytes())
+	s.db.StorageReads += time.Since(start)
+
+	if err != nil {
+		s.db.setError(err)
+		return common.Hash{}, nil, nil
+	}
+	value.SetBytes(val)
+	//}
+	s.originStorage[key] = value
+	return value, pathHashes, rawNodesOnPath
 }
 
 // GetCommittedState retrieves the value associated with the specific key
@@ -222,6 +310,48 @@ func (s *stateObject) SetState(key, value common.Hash) common.Hash {
 	s.setState(key, value, origin)
 	return prev
 }
+
+// prior to SetState being called, GetState was first called so we already logged the path
+// we want to log how the storage location changed, for this it would be useful to 
+// store the previous value of the valueNode, log the current value of the valueNode 
+// and the raw valueNode.
+// TODO: the caller should asser that the prevHash received is in the current dictionary
+func (s *stateObject) SetStateLogged(key, value common.Hash)  (common.Hash, []common.Hash, [][]byte) {
+	// If the new value is the same as old, don't set. Otherwise, track only the
+	// dirty changes, supporting reverting all of it back to no change.
+    // we only care to have these variables to assert that they are nil if dirty
+	prev, pathHashes, rawNodesOnPath, dirty := s.getStateLogged(key)
+	if prev == value {
+        // in a call to SetStateLogged, we've only called GetState on the accout not in the stateobject
+        //trimmed := common.TrimLeftZeroes(value[:])
+        //encoded, err := rlp.EncodeToBytes(
+		//return types.EmptyCodeHash, types.Em=ptyCodeHash, nil
+        // TODO: if prev == value == nil: nothing is happening
+        return prev, pathHashes, rawNodesOnPath
+        // TODO: do we say that it's dirty?
+	}
+	var prevvalue *common.Hash
+	if dirty {
+        if pathHashes != nil || rawNodesOnPath != nil {
+            panic("SetStateLogged: got a dirty state but still received path and nodes!")
+        }
+		prevvalue = &prev
+	}
+	// New value is different, update and journal the change
+	s.db.journal.append(storageChange{
+		account:   &s.address,
+		key:       key,
+		prevvalue: prevvalue,
+	})
+	if s.db.logger != nil && s.db.logger.OnStorageChange != nil {
+		s.db.logger.OnStorageChange(s.address, key, prev, value)
+	}
+    // setState doesn't do anything but update the live storage, nothing special to be done
+	s.setState(key, &value)
+    return prev, pathHashes, rawNodesOnPath
+	//return types.EmptyCodeHash, types.EmptyCodeHash, nil
+}
+
 
 // setState updates a value in account dirty storage. The dirtiness will be
 // removed if the value being set equals to the original value.
