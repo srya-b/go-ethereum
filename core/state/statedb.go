@@ -973,6 +973,7 @@ func (s *StateDB) GetRefund() uint64 {
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
 func (s *StateDB) Finalise(deleteEmptyObjects bool) {
+	// DEBUG: print out the logEntries
 	addressesToPrefetch := make([][]byte, 0, len(s.journal.dirties))
 	for addr, dirtyCount := range s.journal.dirties {
 		isZombie := s.journal.zombieEntries[addr] == dirtyCount
