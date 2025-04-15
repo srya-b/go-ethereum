@@ -109,7 +109,11 @@ func (j *journal) findReverseOffset(idx int, prev int) (offset int) {
 		if offset < 0 {
 			panic("went negative trying to change offset")
 		}
-		if j.logEntries[i].reverted == true {
+		// skip reverted entries and getstate entries because they don't exist in the 
+		// actual journal
+		_, getobjectok := (j.logEntries[i].entry).(getStateObjectEntry)
+		_, getstorageok := (j.logEntries[i].entry).(getStorageEntry)
+		if j.logEntries[i].reverted == true || getobjectok || getstorageok {
 			offset--
 		} else {
 			return offset
@@ -132,10 +136,15 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 	offset := j.logOffset
 	for i := len(j.entries) - 1; i >= snapshot; i-- {
 		// if the current logEntry is reverted loop until to find an offset that isn't
-		if j.logEntries[i+offset].reverted == true {
+		_, getobjectok := (j.logEntries[i+offset].entry).(getStateObjectEntry)
+		_, getstorageok := (j.logEntries[i+offset].entry).(getStorageEntry)
+
+		if j.logEntries[i+offset].reverted == true || getobjectok || getstorageok {
 			offset = j.findReverseOffset(i, offset)
-			if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) {
-				panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v", j.logEntries[i+offset].reverted, j.logEntries[i+offset+1].reverted))
+			_, getobjectok = (j.logEntries[i+offset].entry).(getStateObjectEntry)
+			_, getstorageok = (j.logEntries[i+offset].entry).(getStorageEntry)
+			if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) || getobjectok || getstorageok {
+				panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v", j.logEntries[i+offset].reverted, j.logEntries[i+offset+1].reverted, getobjectok, getstorageok))
 			}
 		}
 
@@ -150,11 +159,20 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		j.logOffset++
 
 		// Drop any dirty tracking induced by the change
+		// NOTE: anything we need to do here? 
+		//		it's probably important to track this information to sanity check
+		//		the collected data.
 		if addr := j.entries[i].dirtied(); addr != nil {
+			j.logDirties[*addr]--
 			if j.dirties[*addr]--; j.dirties[*addr] == 0 {
+				if j.logDirties[*addr] != 0 {
+					panic(fmt.Sprintf("The real journal has all dirties 0 for addr=%v, but ours is %v", *addr, j.logDirties[*addr]))
+				}
 				delete(j.dirties, *addr)
+				delete(j.logDirties, *addr)
 
 				// Revert zombieEntries tracking
+				// NOTE: we don't track zombies in our log
 				if isZombie(j.entries[i]) {
 					if j.zombieEntries[*addr]--; j.zombieEntries[*addr] == 0 {
 						delete(j.zombieEntries, *addr)
