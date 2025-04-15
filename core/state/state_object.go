@@ -171,10 +171,21 @@ func (s *stateObject) getState(key common.Hash) (common.Hash, bool) {
 	// If we have a dirty value for this state entry, return it
 	value, dirty := s.dirtyStorage[key]
 	if dirty {
+	    s.db.journal.append(getStorageEntry{
+                account: &s.address,
+                key: &key,
+                value: &value,
+        })
 		return value, true
 	}
 	// Otherwise return the entry's original value
-	return s.GetCommittedState(key), false
+    value = s.GetCommittedState(key)
+	s.db.journal.append(getStorageEntry{
+            account: &s.address,
+            key: &key,
+            value: &value,
+    })
+	return value, false
 }
 
 // GetCommittedState retrieves a value from the committed account storage trie.
