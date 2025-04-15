@@ -186,8 +186,18 @@ func (s *stateObject) getState(key common.Hash) (common.Hash, common.Hash) {
 	origin := s.GetCommittedState(key)
 	value, dirty := s.dirtyStorage[key]
 	if dirty {
+	    //s.db.journal.append(getStorageEntry{
+        //        account: &s.address,
+        //        key: &key,
+        //        value: &value,
+        //})
 		return value, origin
 	}
+	//s.db.journal.append(getStorageEntry{
+    //        account: &s.address,
+    //        key: &key,
+    //        value: &origin,
+    //})
 	return origin, origin
 }
 
