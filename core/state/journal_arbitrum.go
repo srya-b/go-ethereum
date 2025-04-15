@@ -9,6 +9,10 @@ type wasmActivation struct {
 	moduleHash common.Hash
 }
 
+func (ch wasmActivation) toString() string {
+	return ""
+}
+
 func (ch wasmActivation) revert(s *StateDB) {
 	delete(s.arbExtraData.activatedWasms, ch.moduleHash)
 }
@@ -34,6 +38,10 @@ type CacheWasm struct {
 	Debug      bool
 }
 
+func (ch CacheWasm) toString() string {
+	return ""
+}
+
 func (ch CacheWasm) revert(s *StateDB) {
 	EvictWasmRust(ch.ModuleHash, ch.Version, ch.Tag, ch.Debug)
 }
@@ -56,6 +64,10 @@ type EvictWasm struct {
 	Version    uint16
 	Tag        uint32
 	Debug      bool
+}
+
+func (ch EvictWasm) toString() string {
+	return ""
 }
 
 func (ch EvictWasm) revert(s *StateDB) {
@@ -89,6 +101,10 @@ type possibleZombie interface {
 func isZombie(entry journalEntry) bool {
 	possiblyZombie, isPossiblyZombie := entry.(possibleZombie)
 	return isPossiblyZombie && possiblyZombie.isZombie()
+}
+
+func (ch createZombieChange) toString() string {
+	return ""
 }
 
 func (ch createZombieChange) revert(s *StateDB) {

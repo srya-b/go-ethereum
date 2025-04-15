@@ -47,6 +47,8 @@ type journalEntry interface {
 
 	// copy returns a deep-copied journal entry.
 	copy() journalEntry
+
+	toString() string
 }
 
 type logJournalEntry struct {
@@ -432,6 +434,32 @@ type (
 	}
 )
 
+const ad = "addr=%v"
+const adK = "addr=%v, key=%v"
+const adKV = "addr=%v, key=%v, val=%v" 
+
+func ap(addr *common.Address) string {
+	return fmt.Sprintf("addr=%v", *addr)
+}
+
+func vp(val *common.Hash) string {
+	return fmt.Sprintf("val=%v", *val)
+}
+
+func kp(key *common.Hash) string {
+	return fmt.Sprintf("key=%v", *key)
+}
+
+func ak(addr *common.Address, key *common.Hash) string {
+	return ap(addr) + ", " + kp(key)
+}
+
+func akv(addr *common.Address, key *common.Hash, val *common.Hash) string {
+	return ap(addr) + ", " + kp(key) + ", " + vp(val)
+}
+	
+
+// getStateObjectEntry
 func (ch getStateObjectEntry) revert(s *StateDB) {
 }
 
@@ -443,6 +471,15 @@ func (ch getStateObjectEntry) copy() journalEntry {
 	return getStateObjectEntry{
 			account: ch.account,
 	}
+}
+
+func (ch getStateObjectEntry) toString() string {
+	return "getStateObject(" + ap(ch.account) + ")"
+}
+
+// getStorageEntry
+func (ch getStorageEntry) toString() string {
+	return "getStorage(" + akv(ch.account, ch.key, ch.value) + ")"
 }
 
 func (ch getStorageEntry) revert(s *StateDB) {
@@ -460,6 +497,10 @@ func (ch getStorageEntry) copy() journalEntry {
 	}
 }
 
+// createObjectChange
+func (ch createObjectChange) toString() string {
+	return "createObjectChange(" + ap(ch.account) + ")"
+}
 
 func (ch createObjectChange) revert(s *StateDB) {
 	delete(s.stateObjects, ch.account)
@@ -475,6 +516,11 @@ func (ch createObjectChange) copy() journalEntry {
 	}
 }
 
+// createContractChange
+func (ch createContractChange) toString() string {
+	return "createContract(" + ap(&ch.account) + ")"
+}
+
 func (ch createContractChange) revert(s *StateDB) {
 	s.getStateObject(ch.account).newContract = false
 }
@@ -487,6 +533,11 @@ func (ch createContractChange) copy() journalEntry {
 	return createContractChange{
 		account: ch.account,
 	}
+}
+
+// selfDestructChange
+func (ch selfDestructChange) toString() string {
+	return "selfDestruct(" + ap(ch.account) + ", prevbalance=" + ch.prevbalance.String() + ")" 
 }
 
 func (ch selfDestructChange) revert(s *StateDB) {
@@ -508,6 +559,11 @@ func (ch selfDestructChange) copy() journalEntry {
 
 var ripemd = common.HexToAddress("0000000000000000000000000000000000000003")
 
+// touchChange
+func (ch touchChange) toString() string {
+	return "touchChange(" + ap(ch.account) + ")"
+}
+
 func (ch touchChange) revert(s *StateDB) {
 }
 
@@ -519,6 +575,11 @@ func (ch touchChange) copy() journalEntry {
 	return touchChange{
 		account: ch.account,
 	}
+}
+
+// balanceChange
+func (ch balanceChange) toString() string {
+	return "balanceChange(" + ap(ch.account) + ", prev=" + ch.prev.String() + ")"
 }
 
 func (ch balanceChange) revert(s *StateDB) {
@@ -536,6 +597,11 @@ func (ch balanceChange) copy() journalEntry {
 	}
 }
 
+// nonceChange
+func (ch nonceChange) toString() string {
+	return "nonceChange(" + ap(ch.account) + fmt.Sprintf(", prev=%v)",ch.prev)
+} 
+
 func (ch nonceChange) revert(s *StateDB) {
 	s.getStateObject(ch.account).setNonce(ch.prev)
 }
@@ -551,6 +617,11 @@ func (ch nonceChange) copy() journalEntry {
 	}
 }
 
+// codeChange
+func (ch codeChange) toString() string {
+	return ""
+}
+
 func (ch codeChange) revert(s *StateDB) {
 	s.getStateObject(ch.account).setCode(crypto.Keccak256Hash(ch.prevCode), ch.prevCode)
 }
@@ -564,6 +635,11 @@ func (ch codeChange) copy() journalEntry {
 		account:  ch.account,
 		prevCode: ch.prevCode,
 	}
+}
+
+// storageCahnge
+func (ch storageChange) toString() string {
+	return ""
 }
 
 func (ch storageChange) revert(s *StateDB) {
@@ -582,6 +658,11 @@ func (ch storageChange) copy() journalEntry {
 	}
 }
 
+// transientStorageChange
+func (ch transientStorageChange) toString() string {
+	return ""
+} 
+
 func (ch transientStorageChange) revert(s *StateDB) {
 	s.setTransientState(ch.account, ch.key, ch.prevalue)
 }
@@ -598,6 +679,11 @@ func (ch transientStorageChange) copy() journalEntry {
 	}
 }
 
+// refundChange
+func (ch refundChange) toString() string {
+	return ""
+}
+
 func (ch refundChange) revert(s *StateDB) {
 	s.refund = ch.prev
 }
@@ -610,6 +696,11 @@ func (ch refundChange) copy() journalEntry {
 	return refundChange{
 		prev: ch.prev,
 	}
+}
+
+// addLogChange
+func (ch addLogChange) toString() string {
+	return ""
 }
 
 func (ch addLogChange) revert(s *StateDB) {
@@ -630,6 +721,30 @@ func (ch addLogChange) copy() journalEntry {
 	return addLogChange{
 		txhash: ch.txhash,
 	}
+}
+
+// addPreimageChange
+func (ch addPreimageChange) toString() string {
+	return ""
+}
+
+func (ch addPreimageChange) revert(s *StateDB) {
+	delete(s.preimages, ch.hash)
+}
+
+func (ch addPreimageChange) dirtied() *common.Address {
+	return nil
+}
+
+func (ch addPreimageChange) copy() journalEntry {
+	return addPreimageChange{
+		hash: ch.hash,
+	}
+}
+
+// accessListAddAccountChange
+func (ch accessListAddAccountChange) toString() string {
+	return ""
 }
 
 func (ch accessListAddAccountChange) revert(s *StateDB) {
@@ -653,6 +768,11 @@ func (ch accessListAddAccountChange) copy() journalEntry {
 	return accessListAddAccountChange{
 		address: ch.address,
 	}
+}
+
+// accessListAddSlotChange
+func (ch accessListAddSlotChange) toString() string {
+	return ""
 }
 
 func (ch accessListAddSlotChange) revert(s *StateDB) {
