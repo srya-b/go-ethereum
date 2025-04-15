@@ -49,6 +49,22 @@ type journalEntry interface {
 	copy() journalEntry
 }
 
+type logJournalEntry struct {
+	entry journalEntry
+	reverted bool
+}
+
+func (l logJournalEntry) copy() logJournalEntry {
+	return logJournalEntry{
+			entry: l.entry.copy(),
+			reverted: l.reverted,
+	}
+}
+
+func (ch *logJournalEntry) logRevert(s* StateDB) {
+	ch.reverted = true
+}
+
 // journal contains the list of state modifications applied since the last state
 // commit. These are tracked to be able to be reverted in the case of an execution
 // exception or request for reversal.
@@ -60,6 +76,10 @@ type journal struct {
 
 	validRevisions []revision
 	nextRevisionId int
+	logEntries []logJournalEntry
+	logDirties map[common.Address]int
+	txLogEntries [][]logJournalEntry
+	logOffset int
 }
 
 // newJournal creates a new initialized journal.
@@ -68,6 +88,7 @@ func newJournal() *journal {
 		zombieEntries: make(map[common.Address]int),
 
 		dirties: make(map[common.Address]int),
+		logDirties: make(map[common.Address]int),
 	}
 }
 
@@ -109,22 +130,74 @@ func (j *journal) revertToSnapshot(revid int, s *StateDB) {
 
 // append inserts a new modification entry to the end of the change journal.
 func (j *journal) append(entry journalEntry) {
-	j.entries = append(j.entries, entry)
-	if addr := entry.dirtied(); addr != nil {
-		j.dirties[*addr]++
-		// Arbitrum: also track the number of zombie changes
-		if isZombie(entry) {
-			j.zombieEntries[*addr]++
+	// got getstate logs, only add to logEntries and increment offset
+	switch entry.(type) {
+	case getStateObjectEntry:
+		j.logEntries = append(j.logEntries, logJournalEntry{entry: entry, reverted: false})
+		j.logOffset++
+	case getStorageEntry:
+		j.logEntries = append(j.logEntries, logJournalEntry{entry: entry, reverted: false})
+		j.logOffset++
+	default:
+		j.entries = append(j.entries, entry)
+		j.logEntries = append(j.logEntries, logJournalEntry{entry: entry, reverted: false})
+		if addr := entry.dirtied(); addr != nil {
+			j.dirties[*addr]++
+			j.logDirties[*addr]++
+			// Arbitrum: also track the number of zombie changes
+			if isZombie(entry) {
+				// TODO: what do we do with zombie entries
+				j.zombieEntries[*addr]++
+			}
 		}
 	}
+}
+
+func (j *journal) findReverseOffset(idx int, prev int) (offset int) {
+	offset = prev
+	for i := idx+prev; i >= 0; i-- {
+		if offset < 0 {
+			panic("went negative trying to change offset")
+		}
+		if j.logEntries[i].reverted == true {
+			offset--
+		} else {
+			return offset
+		}
+	}
+	// couldn't find a place where there's no reverted that means everything in the journal was reverted so the offset should actually be 0
+	if offset != 0 {
+		panic(fmt.Sprintf("Everything reverted, but offset isn't 0. Is %v", offset))
+	}
+	if offset == prev {
+		panic("findReverseOffset was called on an element that isn't reverted because offset is the same.")
+	}
+
+	return offset
 }
 
 // revert undoes a batch of journalled modifications along with any reverted
 // dirty handling too.
 func (j *journal) revert(statedb *StateDB, snapshot int) {
+	offset := j.logOffset
 	for i := len(j.entries) - 1; i >= snapshot; i-- {
+		// if the current logEntry is reverted loop until to find an offset that isn't
+		if j.logEntries[i+offset].reverted == true {
+			offset = j.findReverseOffset(i, offset)
+			if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) {
+				panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v", j.logEntries[i+offset].reverted, j.logEntries[i+offset+1].reverted))
+			}
+		}
+
 		// Undo the changes made by the operation
 		j.entries[i].revert(statedb)
+		// in log entries just mark them reverted
+		j.logEntries[i+offset].logRevert(statedb)
+
+		if j.logEntries[i+offset].reverted == false {
+			panic("logRevert not changed actual object")
+		}
+		j.logOffset++
 
 		// Drop any dirty tracking induced by the change
 		if addr := j.entries[i].dirtied(); addr != nil {
@@ -148,6 +221,7 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 // precompile consensus exception.
 func (j *journal) dirty(addr common.Address) {
 	j.dirties[addr]++
+	j.logDirties[addr]++
 }
 
 // length returns the current number of entries in the journal.
@@ -155,19 +229,30 @@ func (j *journal) length() int {
 	return len(j.entries)
 }
 
+func (j *journal) logLength() int {
+	return len(j.logEntries)
+}
+
 // copy returns a deep-copied journal.
 func (j *journal) copy() *journal {
 	entries := make([]journalEntry, 0, j.length())
+	logEntries := make([]logJournalEntry, 0, j.logLength())
 	for i := 0; i < j.length(); i++ {
 		entries = append(entries, j.entries[i].copy())
+	}
+	for i := 0; i < j.logLength(); i++ {
+		logEntries = append(logEntries, j.logEntries[i].copy())
 	}
 	return &journal{
 		zombieEntries: maps.Clone(j.zombieEntries),
 
-		entries:        entries,
-		dirties:        maps.Clone(j.dirties),
+		entries: entries,
+		dirties: maps.Clone(j.dirties),
 		validRevisions: slices.Clone(j.validRevisions),
 		nextRevisionId: j.nextRevisionId,
+		logEntries: logEntries,
+		logDirties: maps.Clone(j.logDirties),
+		logOffset: j.logOffset,
 	}
 }
 
@@ -317,7 +402,46 @@ type (
 		account       common.Address
 		key, prevalue common.Hash
 	}
+
+	getStateObjectEntry struct {
+		account	*common.Address
+	}
+
+	getStorageEntry struct {
+		account	*common.Address
+		key		*common.Hash
+		value	*common.Hash
+	}
 )
+
+func (ch getStateObjectEntry) revert(s *StateDB) {
+}
+
+func (ch getStateObjectEntry) dirtied() *common.Address {
+	return nil
+}
+
+func (ch getStateObjectEntry) copy() journalEntry {
+	return getStateObjectEntry{
+			account: ch.account,
+	}
+}
+
+func (ch getStorageEntry) revert(s *StateDB) {
+}
+
+func (ch getStorageEntry) dirtied() *common.Address {
+	return nil
+}
+
+func (ch getStorageEntry) copy() journalEntry {
+	return getStorageEntry{
+			account: ch.account,
+			key: ch.key,
+			value: ch.value,
+	}
+}
+
 
 func (ch createObjectChange) revert(s *StateDB) {
 	delete(s.stateObjects, ch.account)

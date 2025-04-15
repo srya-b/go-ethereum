@@ -87,6 +87,8 @@ const (
 	OpSetNonce
 	OpSetCode
 	OpSelfDestruct
+	OpCreateAccount
+	OpCreateContract
 )
 
 type OP struct {
@@ -172,6 +174,9 @@ type StateDB struct {
 
 	// State witness if cross validation is needed
 	witness *stateless.Witness
+	loggedJournals [][]logJournalEntry
+	loggedDirties []map[common.Address]int
+	loggedOffsets []int
 
 	// Measurements gathered during execution for debugging purposes
 	AccountReads    time.Duration
@@ -481,40 +486,10 @@ func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
 // only when the dirties are processed is there something to do
 func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 	var stateObject *stateObject
-	var pathHashes []common.Hash
-	var rawNodesOnPath [][]byte
-	var valNodeBytes []byte
-	if s.logState {
-		stateObject, pathHashes, valNodeBytes, rawNodesOnPath = s.getStateObjectLogged(addr)
-		if pathHashes == nil && rawNodesOnPath == nil {
-			// this means this is a live object so we don't have to do anything but log this access
-			s.logGetState(addr, hash, types.EmptyCodeHash, types.EmptyCodeHash.Bytes(), []common.Hash{})
-		} else {
-			// add this op to the list of ops
-			s.logGetState(addr, hash, types.EmptyCodeHash, valNodeBytes, pathHashes)
-		}
-		if stateObject != nil {
-			var storageObject common.Hash
-			storageObject, pathHashes, rawNodesOnPath = stateObject.GetStateLogged(hash)
-			if pathHashes == nil && rawNodesOnPath == nil {
-				s.logGetStorage(addr, hash, types.EmptyCodeHash, nil, []common.Hash{})
-			} else {
-				s.logGetStorage(addr, hash, storageObject, nil, pathHashes)
-			}
-			return storageObject
-		} else {
-			// maybe we didn't find anything, in this case we should record the path taken for validation and that the key wasn't found  
-			if pathHashes == nil || rawNodesOnPath == nil {
-				panic("GetState: stateObject no found and nothing traversed?")
-			}
-			s.logGetStorageMiss(addr, hash, types.EmptyCodeHash, nil, pathHashes)
-		}
-	} else {
-		stateObject = s.getStateObject(addr)
+	stateObject = s.getStateObject(addr)
 	
-		if stateObject != nil {
-			return stateObject.GetState(hash)
-		}
+	if stateObject != nil {
+		return stateObject.GetState(hash)
 	}
 	return common.Hash{}
 }
@@ -564,24 +539,6 @@ func (s *StateDB) HasSelfDestructed(addr common.Address) bool {
  * SETTERS
  */
 
-func (s *StateDB) logAddBalance(addr common.Address, amt uint256.Int) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpAddBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
-	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-	s.totalOps = s.totalOps + 1
-}
-
-func (s *StateDB) logSubBalance(addr common.Address, amt uint256.Int) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpSubBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
-	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-	s.totalOps = s.totalOps + 1
-}
-
-func (s *StateDB) logSetBalance(addr common.Address, amt uint256.Int) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpSetBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
-	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-	s.totalOps = s.totalOps + 1
-}
-
 
 // AddBalance adds amount to the account associated with addr.
 func (s *StateDB) AddBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
@@ -605,14 +562,6 @@ func (s *StateDB) SubBalance(addr common.Address, amount *uint256.Int, reason tr
 	s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
 	return stateObject.SetBalance(new(uint256.Int).Sub(stateObject.Balance(), amount))
 }
-
-//func (s *StateDB) SubBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) {
-//	stateObject := s.getOrNewStateObject(addr)
-//	if stateObject != nil {
-//		s.arbExtraData.unexpectedBalanceDelta.Sub(s.arbExtraData.unexpectedBalanceDelta, amount.ToBig())
-//		stateObject.SubBalance(amount, reason)
-//	}
-//}
 
 func (s *StateDB) SetBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) {
 	stateObject := s.getOrNewStateObject(addr)
@@ -681,17 +630,6 @@ func (s *StateDB) SetState(addr common.Address, key, value common.Hash) common.H
 	return common.Hash{}
 }
 
-func (s *StateDB) logSetStorageCreate(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpSetStorageCreate, addr: addr, key: key, value: value, node: node})
-	s.pathsTaken = append(s.pathsTaken, pathsTaken)
-	s.totalOps = s.totalOps + 1
-}
-
-func (s *StateDB) logSetStorage(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpSetStorage, addr: addr, key: key, value: value, node: node})
-	s.pathsTaken = append(s.pathsTaken, pathsTaken)
-	s.totalOps = s.totalOps + 1
-}
 
 // SetStorage replaces the entire storage for the specified account with given
 // storage. This function should only be used for debugging and the mutations
@@ -815,6 +753,7 @@ func (s *StateDB) deleteStateObject(addr common.Address) {
 
 func (s *StateDB) getStateObject2(addr common.Address) *stateObject {
 	// Prefer live objects if any is available
+	s.journal.append(getStateObjectEntry{account: &addr})
 	if obj := s.stateObjects[addr]; obj != nil {
 		//log.Info("Live stateobject", "addr", addr)
 		s.journal.append(getStateObjectEntry{account: &addr})
@@ -922,74 +861,6 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	return obj
 }
 
-func (s *StateDB) getStateObjectLogged(addr common.Address) (*stateObject, []common.Hash, []byte, [][]byte) {
-	// Prefer live objects if any is available
-	if obj := s.stateObjects[addr]; obj != nil {
-		return obj, nil, nil, nil
-	}
-	// Short circuit if the account is already destructed in this block.
-	// TODO what to do here?
-	if _, ok := s.stateObjectsDestruct[addr]; ok {
-		// let it return here because a destruted object is always known and instantly checked
-		// eventually the advice or whatever can inform that something is destroyed, and we don't
-		// want to cache anything explored here
-		return nil, nil, nil, nil
-	}
-	// If no live objects are available, attempt to use snapshots
-	// NOTE: snapshot reads are out of the question
-	var data *types.StateAccount
-	//if s.snap != nil {
-	//	log.Info("Went through the snapshot")
-	//	start := time.Now()
-	//	acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
-	//	s.SnapshotAccountReads += time.Since(start)
-
-	//	if err == nil {
-	//		if acc == nil {
-	//			return nil, nil, nil
-	//		}
-	//		data = &types.StateAccount{
-	//			Nonce:    acc.Nonce,
-	//			Balance:  acc.Balance,
-	//			CodeHash: acc.CodeHash,
-	//			Root:     common.BytesToHash(acc.Root),
-	//		}
-	//		if len(data.CodeHash) == 0 {
-	//			data.CodeHash = types.EmptyCodeHash.Bytes()
-	//		}
-	//		if data.Root == (common.Hash{}) {
-	//			data.Root = types.EmptyRootHash
-	//		}
-	//	}
-	//}
-	// If snapshot unavailable or reading from it failed, load from the database
-	var pathHashes []common.Hash
-	var rawNodesOnPath [][]byte
-	var valNodeBytes []byte
-	if data == nil {
-		log.Info("Looking in the trie")
-		start := time.Now()
-		var err error
-		data, valNodeBytes, pathHashes, rawNodesOnPath, err = s.trie.GetAccountLogged(addr)
-		s.AccountReads += time.Since(start)
-
-		// TODO: what to do here
-		if err != nil {
-			s.setError(fmt.Errorf("getDeleteStateObject (%x) error: %w", addr.Bytes(), err))
-			return nil, nil, nil, nil
-		}
-		if data == nil {
-			return nil, nil, nil, nil
-		}
-	}
-	// Insert into the live set
-	obj := newObject(s, addr, data)
-	s.setStateObject(obj)
-	return obj, pathHashes, valNodeBytes, rawNodesOnPath
-	//return obj
-}
-
-
 
 func (s *StateDB) setStateObject(object *stateObject) {
 	s.stateObjects[object.Address()] = object
@@ -1004,32 +875,11 @@ func (s *StateDB) getOrNewStateObject(addr common.Address) *stateObject {
 	return obj
 }
 
-func (s *StateDB) getOrNewStateObjectLogged(addr common.Address) (*stateObject, []byte, []common.Hash, [][]byte, bool) {
-	//obj, pathHashes, rawNodesOnPath := s.getStateObjectLogged(addr)
-	obj, pathHashes, valNodeBytes, rawNodesOnPath := s.getStateObjectLogged(addr)
-	if obj == nil {
-		if pathHashes != nil || rawNodesOnPath != nil {
-			panic("No state object, but getStateObjectLogged returns a path")
-		}
-		// in the case of create object, there's nothing to add to the logger
-		obj = s.createObjectLogged(addr)
-		return obj, nil, nil, nil, true
-	}
-	return obj, valNodeBytes, pathHashes, rawNodesOnPath, false
-}
-
 // createObject creates a new state object. The assumption is held there is no
 // existing account with the given address, otherwise it will be silently overwritten.
 func (s *StateDB) createObject(addr common.Address) *stateObject {
 	obj := newObject(s, addr, nil)
 	s.journal.createObject(addr)
-	s.setStateObject(obj)
-	return obj
-}
-
-func (s *StateDB) createObjectLogged(addr common.Address) *stateObject {
-	obj := newObject(s, addr, nil)
-	s.journal.append(createObjectChange{account: &addr})
 	s.setStateObject(obj)
 	return obj
 }
@@ -1417,6 +1267,10 @@ func (s *StateDB) SetTxContext(thash common.Hash, ti int) {
 func (s *StateDB) clearJournalAndRefund() {
 	s.journal.reset()
 	s.refund = 0
+	s.loggedJournals = append(s.loggedJournals, s.journal.logEntries)
+	s.loggedDirties = append(s.loggedDirties, s.journal.logDirties)
+	s.loggedOffsets = append(s.loggedOffsets, s.journal.logOffset)
+	s.journal = newJournal()
 }
 
 // fastDeleteStorage is the function that efficiently deletes the storage trie
