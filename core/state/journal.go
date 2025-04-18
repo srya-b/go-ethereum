@@ -20,6 +20,7 @@ import (
 	"maps"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
 )
@@ -42,6 +43,19 @@ type journalEntry interface {
 type logJournalEntry struct {
 	entry journalEntry
 	reverted bool
+}
+
+func (l logJournalEntry) toString() string {
+	entryString := l.entry.toString()
+	if entryString != "" {
+		if l.reverted {
+			return entryString + " reverted"
+		} else {
+			return entryString
+		}
+	} else {
+		return ""
+	}
 }
 
 func (l logJournalEntry) copy() logJournalEntry {
@@ -74,7 +88,7 @@ type journal struct {
 func newJournal() *journal {
 	return &journal{
 		zombieEntries: make(map[common.Address]int),
-
+		// TODO: don't get rid of it yet
 		dirties: make(map[common.Address]int),
 		logDirties: make(map[common.Address]int),
 	}
@@ -84,10 +98,7 @@ func newJournal() *journal {
 func (j *journal) append(entry journalEntry) {
 	// got getstate logs, only add to logEntries and increment offset
 	switch entry.(type) {
-	case getStateObjectEntry:
-		j.logEntries = append(j.logEntries, logJournalEntry{entry: entry, reverted: false})
-		j.logOffset++
-	case getStorageEntry:
+	case getStateObjectEntry, getStorageEntry:
 		j.logEntries = append(j.logEntries, logJournalEntry{entry: entry, reverted: false})
 		j.logOffset++
 	default:
@@ -132,9 +143,39 @@ func (j *journal) findReverseOffset(idx int, prev int) (offset int) {
 	return offset
 }
 
+func numGets(logEntries []logJournalEntry) int {
+	total := 0
+	for _, entry := range logEntries {
+		switch (entry.entry).(type) {
+		case getStateObjectEntry, getStorageEntry:
+			total++
+		default:
+		}
+	}
+	return total
+}
+
+func noGetReverted(logEntries []logJournalEntry) bool {
+	// check that no Get is ever reverted, because that doesn't make sense
+	for _, entry := range logEntries {
+		switch (entry.entry).(type) {
+		case getStateObjectEntry, getStorageEntry:
+			if entry.reverted {
+				return false
+			}
+		default:
+		}
+	}
+	return true
+}
+
 // revert undoes a batch of journalled modifications along with any reverted
 // dirty handling too.
 func (j *journal) revert(statedb *StateDB, snapshot int) {
+	fmt.Println("\n\nReverting\n\n")
+	log.Info("Journal", "len", len(j.entries))
+	log.Info("Log entries", "len", len(j.logEntries), "offset", j.logOffset)
+
 	offset := j.logOffset
 	for i := len(j.entries) - 1; i >= snapshot; i-- {
 		// if the current logEntry is reverted loop until to find an offset that isn't
@@ -145,7 +186,11 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 			offset = j.findReverseOffset(i, offset)
 			_, getobjectok = (j.logEntries[i+offset].entry).(getStateObjectEntry)
 			_, getstorageok = (j.logEntries[i+offset].entry).(getStorageEntry)
-			if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) || getobjectok || getstorageok {
+			// NOTE: the below commented out conditional is no longer valid because you can reverse because of gets rather than revertes so i+offset+1 doesn't always have to be reverted.
+			//if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) || getobjectok || getstorageok {
+			if !(j.logEntries[i+offset].reverted == false) || getobjectok || getstorageok {
+				log.Info("Computed", "offset", offset, "idx", i)
+				log.Info("SPecial cases", "gets", numGets(j.logEntries), "noGetReverted", noGetReverted(j.logEntries))
 				panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v", j.logEntries[i+offset].reverted, j.logEntries[i+offset+1].reverted, getobjectok, getstorageok))
 			}
 		}
@@ -184,6 +229,9 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		}
 	}
 	j.entries = j.entries[:snapshot]
+	fmt.Println("\n\nafter revert\n\n")
+	log.Info("Journal", "len", len(j.entries))
+	log.Info("Log entries", "len", len(j.logEntries), "offset", j.logOffset)
 }
 
 // dirty explicitly sets an address to dirty, even if the change entries would
@@ -312,15 +360,27 @@ const adK = "addr=%v, key=%v"
 const adKV = "addr=%v, key=%v, val=%v" 
 
 func ap(addr *common.Address) string {
-	return fmt.Sprintf("addr=%v", *addr)
+	if addr == nil {
+		return fmt.Sprintf("addr=nil")
+	} else {
+		return fmt.Sprintf("addr=%v", *addr)
+	}
 }
 
 func vp(val *common.Hash) string {
-	return fmt.Sprintf("val=%v", *val)
+	if val == nil {
+		return fmt.Sprintf("val=nil")
+	} else {
+		return fmt.Sprintf("val=%v", *val)
+	}
 }
 
 func kp(key *common.Hash) string {
-	return fmt.Sprintf("key=%v", *key)
+	if key == nil {
+		return fmt.Sprintf("key=nil")
+	} else {
+		return fmt.Sprintf("key=%v", *key)
+	}
 }
 
 func ak(addr *common.Address, key *common.Hash) string {
@@ -346,6 +406,11 @@ func (ch getStateObjectEntry) copy() journalEntry {
 	}
 }
 
+func (ch getStateObjectEntry) Account() *common.Address {
+	return ch.account
+}
+
+
 func (ch getStateObjectEntry) toString() string {
 	return "getStateObject(" + ap(ch.account) + ")"
 }
@@ -353,6 +418,18 @@ func (ch getStateObjectEntry) toString() string {
 // getStorageEntry
 func (ch getStorageEntry) toString() string {
 	return "getStorage(" + akv(ch.account, ch.key, ch.value) + ")"
+}
+
+func (ch getStorageEntry) Account() *common.Address {
+	return ch.account
+}
+
+func (ch getStorageEntry) Key() *common.Hash {
+	return ch.key
+}
+
+func (ch getStorageEntry) Value() *common.Hash {
+	return ch.value
 }
 
 func (ch getStorageEntry) revert(s *StateDB) {
@@ -516,7 +593,7 @@ func (ch codeChange) copy() journalEntry {
 
 // storageCahnge
 func (ch storageChange) toString() string {
-	return ""
+	return "storageChange(" + akv(ch.account, &ch.key, ch.prevvalue) + ")"
 }
 
 func (ch storageChange) revert(s *StateDB) {

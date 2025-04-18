@@ -228,7 +228,11 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 		var hChildren [17]node
 		//hChildren = make([]node, 17)
 		for i, c := range &n.Children {
-			hChildren[i] = HashNodeAsHashNode(c)
+			if c != nil {
+				hChildren[i] = HashNodeAsHashNode(c)
+			} else {
+				hChildren[i] = nil
+			}
 		}		
 		newfn := &fullNode{hChildren, nodeFlag{dirty: false}}
 		rawnewfn, err := rlp.EncodeToBytes(newfn)

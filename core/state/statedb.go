@@ -38,6 +38,7 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/ethereum/go-ethereum/trie/trienode"
 	"github.com/ethereum/go-ethereum/trie/triestate"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/holiman/uint256"
 	"golang.org/x/sync/errgroup"
 )
@@ -562,12 +563,6 @@ func (s *StateDB) ExpectBalanceBurn(amount *big.Int) {
 	s.arbExtraData.unexpectedBalanceDelta.Add(s.arbExtraData.unexpectedBalanceDelta, amount)
 }
 
-func (s *StateDB) logSetNonce(addr common.Address, amt uint256.Int) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpSetBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
-	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-	s.totalOps = s.totalOps + 1
-}
-
 
 func (s *StateDB) SetNonce(addr common.Address, nonce uint64) {
 	stateObject := s.getOrNewStateObject(addr)
@@ -612,13 +607,6 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 		stateObject.SetState(k, v)
 	}
 }
-
-func (s *StateDB) logSelfDestruct(addr common.Address, pathsTaken []common.Hash) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpSelfDestruct, addr: addr, key: emptyHash, value: emptyHash, node: nil})
-	s.pathsTaken = append(s.pathsTaken, pathsTaken)
-	s.totalOps = s.totalOps + 1
-}
-
 
 // SelfDestruct marks the given account as selfdestructed.
 // This clears the account balance.
@@ -689,6 +677,7 @@ func (s *StateDB) GetTransientState(addr common.Address, key common.Hash) common
 // Setting, updating & deleting state object methods.
 //
 
+// helper functions
 // updateStateObject writes the given object to the trie.
 func (s *StateDB) updateStateObject(obj *stateObject) {
 	// Track the amount of time wasted on updating the account from the trie
@@ -736,8 +725,9 @@ func (s *StateDB) deleteStateObject(addr common.Address) {
 // NOTE: this returns only the path taken to get to the specific account node. Another path will be added by GetState which is into the account's trie
 func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	// Prefer live objects if any is available
-	s.journal.append(getStateObjectEntry{account: &addr})
 	if obj := s.stateObjects[addr]; obj != nil {
+		log.Info("Live stateobject", "addr", addr)
+		s.journal.append(getStateObjectEntry{account: &addr})
 		return obj
 	}
 	// Short circuit if the account is already destructed in this block.
@@ -745,11 +735,13 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 		// let it return here because a destruted object is always known and instantly checked
 		// eventually the advice or whatever can inform that something is destroyed, and we don't
 		// want to cache anything explored here
+		s.journal.append(getStateObjectEntry{account: &addr})
 		return nil
 	}
 	// If no live objects are available, attempt to use snapshots
 	var data *types.StateAccount
 	if s.snap != nil {
+		log.Info("Searching in snapshot", "addr", addr)
 		start := time.Now()
 		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
 		s.SnapshotAccountReads += time.Since(start)
@@ -774,6 +766,7 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	}
 	// If snapshot unavailable or reading from it failed, load from the database
 	if data == nil {
+		log.Info("Not in snapshot", "addr", addr)
 		start := time.Now()
 		var err error
 		data, err = s.trie.GetAccount(addr)
@@ -784,14 +777,16 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 			return nil
 		}
 		if data == nil {
+			log.Info("data == nil")
 			return nil
 		}
 	}
 	// Insert into the live set
+	log.Info("logging and creating a new object from data", "addr", addr)
+	s.journal.append(getStateObjectEntry{account: &addr})
 	obj := newObject(s, addr, data)
 	s.setStateObject(obj)
 	return obj
-	//return obj
 }
 
 
@@ -831,6 +826,7 @@ func (s *StateDB) createZombie(addr common.Address) *stateObject {
 // exists, this function will silently overwrite it which might lead to a
 // consensus bug eventually.
 func (s *StateDB) CreateAccount(addr common.Address) {
+	log.Info("CreateAccount", "addr", addr)
 	s.createObject(addr)
 }
 
@@ -840,6 +836,9 @@ func (s *StateDB) CreateAccount(addr common.Address) {
 // This operation sets the 'newContract'-flag, which is required in order to
 // correctly handle EIP-6780 'delete-in-same-transaction' logic.
 func (s *StateDB) CreateContract(addr common.Address) {
+	// we need a custom version of getStateObject that doesn't log this access request
+	// contracts are unique in that they are accessed before they are requests
+	log.Info("Contract create", "addr", addr)
 	obj := s.getStateObject(addr)
 	if !obj.newContract {
 		obj.newContract = true
@@ -969,11 +968,84 @@ func (s *StateDB) GetRefund() uint64 {
 	return s.refund
 }
 
+func valueToLeaf(value common.Hash) []byte {
+	trimmed := common.TrimLeftZeroes(value[:])
+	return trimmed
+}
+
+func stateObjectToBytes(obj *stateObject) []byte {
+	data, err := rlp.EncodeToBytes(&(obj.data))
+	if err != nil {
+		log.Error("Erroneous state object", "data", obj.data)
+		panic(fmt.Sprintf("Failed to encode accound for %v, %v", obj.address, err))
+	}
+	return data
+}
+	
+
+func (s *StateDB) accountToBytes(addr common.Address) []byte {
+	obj, exist := s.stateObjects[addr]
+	if !exist {
+		panic(fmt.Sprintf("Called accountToEncodeNode with address not in stateObjects: %v", addr))
+	}
+	return stateObjectToBytes(obj)
+}
+
+func isArbosAddress(addr common.Address) bool {
+	isRandomAddress := addr.Cmp(common.HexToAddress("0xa4B00000000000000000000000000000000000F6")) == 0
+	isRandomAddress2 := addr.Cmp(common.HexToAddress("0x11B57FE348584f042E436c6Bf7c3c3deF171de49")) == 0
+	isEmptyAddress := addr.Cmp(common.HexToAddress("0x0000000000000000000000000000000000000000")) == 0
+	isDevAddress := addr.Cmp(common.HexToAddress("0x3f1Eae7D46d88F08fc2F8ed27FCb2AB183EB2d0E")) == 0
+	isStateAddress := (addr.Cmp(types.ArbosStateAddress) == 0)
+	isOsAddress := (addr.Cmp(types.ArbosAddress) == 0)
+	isSysAddress := (addr.Cmp(types.ArbSysAddress) == 0)
+	isInfoAddress := (addr.Cmp(types.ArbInfoAddress) == 0)
+
+	isTableAddress := (addr.Cmp(types.ArbAddressTableAddress) == 0)           
+	isBLSAddress := (addr.Cmp(types.ArbBLSAddress) == 0)           
+	isFTableAddress := (addr.Cmp(types.ArbFunctionTableAddress) == 0)        
+	isTestAddress := (addr.Cmp(types.ArbosTestAddress) == 0)          
+	isGasInfoAddress := (addr.Cmp(types.ArbGasInfoAddress) == 0)       
+	isOwnerPublicAddress := (addr.Cmp(types.ArbOwnerPublicAddress) == 0)   
+	isAggregatorAddress := (addr.Cmp(types.ArbAggregatorAddress) == 0)    
+	isRetryableAddress := (addr.Cmp(types.ArbRetryableTxAddress) == 0)     
+	isStatAddress := (addr.Cmp(types.ArbStatisticsAddress) == 0)          
+	isOwnerAddress := (addr.Cmp(types.ArbOwnerAddress) == 0)         
+	isWasmAddress := (addr.Cmp(types.ArbWasmAddress) == 0)          
+	isCacheAddress := (addr.Cmp(types.ArbWasmCacheAddress) == 0)         
+	isInterfaceAddress := (addr.Cmp(types.NodeInterfaceAddress) == 0)     
+	isDebugAddress := (addr.Cmp(types.ArbDebugAddress) == 0)         
+	isInterfaceDebugAddress := (addr.Cmp(types.NodeInterfaceDebugAddress) == 0)
+
+
+	if (isStateAddress || isOsAddress || isSysAddress || isInfoAddress ||
+		isTableAddress || isBLSAddress || isFTableAddress || isTestAddress || 
+		isGasInfoAddress || isOwnerPublicAddress || isAggregatorAddress || 
+		isRetryableAddress || isStatAddress || isStateAddress || isOwnerAddress || 
+		isWasmAddress || isCacheAddress || isInterfaceAddress || isDebugAddress || 
+		isInterfaceDebugAddress || isRandomAddress || isDevAddress || isEmptyAddress ||
+		isRandomAddress2) {
+		return true
+	} else {
+		return false
+	}
+}
+
 // Finalise finalises the state by removing the destructed objects and clears
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
 func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 	// DEBUG: print out the logEntries
+	// if s.logState {
+	// 	for _, logEntry := range s.journal.logEntries {
+	// 		log := logEntry.toString()
+	// 		if log != "" {
+	// 			// we care and we should print this out
+	// 			fmt.Println(log)
+	// 		}
+
+	// 	}
+	// }
 	addressesToPrefetch := make([][]byte, 0, len(s.journal.dirties))
 	for addr, dirtyCount := range s.journal.dirties {
 		isZombie := s.journal.zombieEntries[addr] == dirtyCount
@@ -1020,8 +1092,140 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 	if s.prefetcher != nil && len(addressesToPrefetch) > 0 {
 		s.prefetcher.prefetch(common.Hash{}, s.originalRoot, common.Address{}, addressesToPrefetch)
 	}
+
+	accountsSeen := make(map[common.Address][]common.Hash)
+	keysSeen := make(map[KeyKey][]common.Hash)
+	nodesForAccount := make(map[common.Hash][]byte)
+	nodesForKey := make(map[common.Hash][]byte)
+	//var hashAccesses []common.Hash
+	//createdAccounts := make(map[common.Address]bool)
+	for _, lentry := range s.journal.logEntries {
+		var addr *common.Address
+		var key *common.Hash
+		var keykey KeyKey
+		switch logEntry := (lentry.entry).(type) {
+		case createObjectChange:
+			// this is a new stateObject so log the hash the value node representation of the state
+			addr = logEntry.account
+			if isArbosAddress(*addr) {
+				continue
+			}
+			rawNode := s.accountToBytes(*addr)
+			// the node has no hash so we store the key and value as the same
+			// convert it into a hashNode	
+			rawNodeHash := common.BytesToHash(rawNode)
+			// set it to nil because this is a new account
+			// for all accounts that don't have a path then we know it's a new one
+			accountsSeen[*addr] = nil
+			nodesForAccount[rawNodeHash] = rawNode
+		case createContractChange:
+			addr = &(logEntry.account)
+			if isArbosAddress(*addr) {
+				continue
+			}
+			rawNode := s.accountToBytes(*addr)
+			rawNodeHash := common.BytesToHash(rawNode)
+			accountsSeen[*addr] = nil
+			nodesForAccount[rawNodeHash] = rawNode
+		case getStateObjectEntry:
+			addr = logEntry.Account()
+			if isArbosAddress(*addr) {
+				continue
+			}
+			_, ok := accountsSeen[*addr]
+			if !ok {
+				// we haven't seen it so we store the nodes on the path
+				_, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(*addr)
+				if err != nil || len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
+					panic(fmt.Sprintf("GetAccountLogged(addr=%v) gave no data", *addr))
+				}
+				accountsSeen[*addr] = pathHashes
+				//nodesForAccount[*addr] = rawNodesOnPath
+				for _, rn := range rawNodesOnPath {
+					n, err := trie.PublicDecodeNode(nil, rn)
+					if err != nil {
+						panic(err)
+					}
+					hn := trie.HashNode(n)
+					oldrn, ok := nodesForAccount[hn]
+					if ok {
+						// then the raw nodes should be the same
+						if bytes.Compare(rn, oldrn) != 0 {
+							panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+						}
+					} else {
+						nodesForAccount[hn] = rn
+					}
+				}
+			}
+		case getStorageEntry:
+			addr = logEntry.Account()
+			if isArbosAddress(*addr) {
+				continue
+			}
+			key = logEntry.Key()
+			keykey = KeyKey{*addr, *key}
+			// ASSERT that we've sene the account before
+			_, ok := accountsSeen[*addr]
+			if !ok {
+				panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+			}
+			_, ok = keysSeen[keykey]
+			if !ok {
+				// get the stateObject first it should be in stateObjects
+				obj, exist := s.stateObjects[*addr]
+				if !exist {
+					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+				}
+				_, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
+				if len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
+					panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) gave no data", *addr, *key))
+				}
+				keysSeen[keykey] = pathHashes
+				//nodesForKey[keykey] = rawNodesOnPath
+				for _, rn := range rawNodesOnPath {
+					n, err := trie.PublicDecodeNode(nil, rn)
+					if err != nil {
+						panic(err)
+					}
+					hn := trie.HashNode(n)
+					oldrn, ok := nodesForKey[hn]
+					if ok {
+						if bytes.Compare(rn, oldrn) != 0 {
+							panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+						}
+					} else {
+						nodesForKey[hn] = rn
+					}
+				}
+			}
+		default:
+		}
+	}
+	// no we've stored all the path hashes and the raw nodes for each key that is gotten
+	// now we log all of this information
+	// sanity checking: assert that all the raw nodes correspond to hashes in the other set
+	inAccounts := 0
+	notInAccounts := 0
+	for _, hashes := range accountsSeen {
+		for _, hn := range hashes {
+			_, ok := nodesForAccount[hn]
+			if ok {
+				inAccounts++
+			} else {
+				notInAccounts++
+			}
+		}
+	}
+	log.Info("Sanity checks.", "inAccounts", inAccounts, "notInAccounts", notInAccounts)
+
 	// Invalidate journal because reverting across transactions is not allowed.
 	s.clearJournalAndRefund()
+}
+
+type KeyKey struct {
+	addr common.Address
+	key common.Hash
 }
 
 // IntermediateRoot computes the current root hash of the state trie.
@@ -1045,6 +1249,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 			s.prefetcher = nil
 		}()
 	}
+
 	// Although naively it makes sense to retrieve the account trie and then do
 	// the contract storage and account updates sequentially, that short circuits
 	// the account prefetcher. Instead, let's process all the storage updates
