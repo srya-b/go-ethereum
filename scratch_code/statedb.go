@@ -643,3 +643,17 @@ func (s *StateDB) CreateAccount(addr common.Address) {
 		s.createObject(addr)
 	}
 }
+
+func (s *StateDB) logSetNonce(addr common.Address, amt uint256.Int) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSetBalance, addr: addr, key: types.EmptyCodeHash, value: types.EmptyCodeHash, node: nil, amt: amt})
+	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
+	s.totalOps = s.totalOps + 1
+}
+
+func (s *StateDB) logSelfDestruct(addr common.Address, pathsTaken []common.Hash) {
+	s.opsCalled = append(s.opsCalled, OP{op: OpSelfDestruct, addr: addr, key: emptyHash, value: emptyHash, node: nil})
+	s.pathsTaken = append(s.pathsTaken, pathsTaken)
+	s.totalOps = s.totalOps + 1
+}
+
+
