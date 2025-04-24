@@ -28,6 +28,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"encoding/json"
+	"os"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -175,6 +177,10 @@ type StateDB struct {
 
 	// State witness if cross validation is needed
 	witness *stateless.Witness
+	accountsSeen map[common.Address][]common.Hash
+	keysSeen map[KeyKey][]common.Hash
+	nodesForAccount map[common.Hash][]byte
+	nodesForKey map[common.Hash][]byte
 	loggedJournals [][]logJournalEntry
 	loggedDirties []map[common.Address]int
 	loggedOffsets []int
@@ -234,6 +240,10 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 		mutations:            make(map[common.Address]*mutation),
 		logs:                 make(map[common.Hash][]*types.Log),
 		preimages:            make(map[common.Hash][]byte),
+		accountsSeen: 		  make(map[common.Address][]common.Hash),
+		keysSeen:             make(map[KeyKey][]common.Hash),
+		nodesForAccount:      make(map[common.Hash][]byte),
+		nodesForKey:          make(map[common.Hash][]byte),
 		journal:              newJournal(),
 		accessList:           newAccessList(),
 		transientStorage:     newTransientStorage(),
@@ -886,7 +896,7 @@ func (s *StateDB) createZombie(addr common.Address) *stateObject {
 // exists, this function will silently overwrite it which might lead to a
 // consensus bug eventually.
 func (s *StateDB) CreateAccount(addr common.Address) {
-	log.Info("CreateAccount", "addr", addr)
+	//log.Info("CreateAccount", "addr", addr)
 	s.createObject(addr)
 }
 
@@ -898,7 +908,7 @@ func (s *StateDB) CreateAccount(addr common.Address) {
 func (s *StateDB) CreateContract(addr common.Address) {
 	// we need a custom version of getStateObject that doesn't log this access request
 	// contracts are unique in that they are accessed before they are requests
-	log.Info("Contract create", "addr", addr)
+	//log.Info("Contract create", "addr", addr)
 	obj := s.getStateObject(addr)
 	if !obj.newContract {
 		obj.newContract = true
@@ -1067,6 +1077,69 @@ func isArbosAddress(addr common.Address) bool {
 	}
 }
 
+func (s *StateDB) findStorageChangeInJournal(addr common.Address, key common.Hash) {
+	for _, lentry := range s.journal.logEntries {
+		switch logEntry := (lentry.entry).(type) {
+		case storageChange:
+			a := *(logEntry.account)
+			k := logEntry.key
+			if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
+				obj, exists := s.stateObjects[a]
+				if !exists {
+					panic("doesn't exist")
+				}
+				newval := obj.GetState(k)
+				log.Info("Target entry", "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", newval)
+			}
+		}
+	}
+}
+
+func (s *StateDB) findGetSets(addr common.Address, key common.Hash) {
+	for idx, lentry := range s.journal.logEntries {
+		switch logEntry := (lentry.entry).(type) {
+		case getStorageEntry:
+			a := *(logEntry.account)
+			k := *(logEntry.key)
+			if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
+				log.Info("Get target.", "idx", idx, "addr", a, "key", k, "value", *logEntry.value)
+			}
+		case storageChange:
+			a := *(logEntry.account)
+			k := logEntry.key
+			if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
+				obj, exists := s.stateObjects[a]
+				if !exists {
+					panic("doesn't exist")
+				}
+				newval := obj.GetState(k)
+				log.Info("Target entry", "idx", idx, "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", newval)
+			}
+		}
+	}
+}
+
+func (s *StateDB) findGetCreates(addr common.Address) {
+	for idx, lentry := range s.journal.logEntries {
+		switch logEntry := (lentry.entry).(type) {
+		case getStateObjectEntry:
+			a := *(logEntry.account)
+			if addr.Cmp(a) == 0 {
+				log.Info("Get obj target", "idx", idx, "addr", a)
+			}
+		case createObjectChange:
+			a := *(logEntry.account)
+			if addr.Cmp(a) == 0 {
+				_, exists := s.stateObjects[a]
+				if !exists {
+					panic("obj doesn't exist")
+				}
+				log.Info("Get obj target", "idx", idx, "addr", a)
+			}
+		}
+	}
+}
+
 // Finalise finalises the state by removing the destructed objects and clears
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
@@ -1108,131 +1181,285 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		}
 	}
 
-	accountsSeen := make(map[common.Address][]common.Hash)
-	keysSeen := make(map[KeyKey][]common.Hash)
-	nodesForAccount := make(map[common.Hash][]byte)
-	nodesForKey := make(map[common.Hash][]byte)
+	//accountsSeen := make(map[common.Address][]common.Hash)
+	//keysSeen := make(map[KeyKey][]common.Hash)
+	//nodesForAccount := make(map[common.Hash][]byte)
+	//nodesForKey := make(map[common.Hash][]byte)
 	//var hashAccesses []common.Hash
 	//createdAccounts := make(map[common.Address]bool)
-	for _, lentry := range s.journal.logEntries {
-		var addr *common.Address
-		var key *common.Hash
-		var keykey KeyKey
-		switch logEntry := (lentry.entry).(type) {
-		case createObjectChange:
-			// this is a new stateObject so log the hash the value node representation of the state
-			addr = logEntry.account
-			if isArbosAddress(*addr) {
-				continue
-			}
-			rawNode := s.accountToBytes(*addr)
-			// the node has no hash so we store the key and value as the same
-			// convert it into a hashNode	
-			rawNodeHash := common.BytesToHash(rawNode)
-			// set it to nil because this is a new account
-			// for all accounts that don't have a path then we know it's a new one
-			accountsSeen[*addr] = nil
-			nodesForAccount[rawNodeHash] = rawNode
-		case createContractChange:
-			addr = &(logEntry.account)
-			if isArbosAddress(*addr) {
-				continue
-			}
-			rawNode := s.accountToBytes(*addr)
-			rawNodeHash := common.BytesToHash(rawNode)
-			accountsSeen[*addr] = nil
-			nodesForAccount[rawNodeHash] = rawNode
-		case getStateObjectEntry:
-			addr = logEntry.Account()
-			if isArbosAddress(*addr) {
-				continue
-			}
-			_, ok := accountsSeen[*addr]
-			if !ok {
-				// we haven't seen it so we store the nodes on the path
-				_, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(*addr)
-				if err != nil || len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
-					panic(fmt.Sprintf("GetAccountLogged(addr=%v) gave no data", *addr))
-				}
-				accountsSeen[*addr] = pathHashes
-				//nodesForAccount[*addr] = rawNodesOnPath
-				for _, rn := range rawNodesOnPath {
-					n, err := trie.PublicDecodeNode(nil, rn)
-					if err != nil {
-						panic(err)
+	if s.logState {
+		totalKeysInTrie := 0
+		totalAccountsInTrie := 0
+		for idx, lentry := range s.journal.logEntries {
+			var addr *common.Address
+			var key *common.Hash
+			var keykey KeyKey
+			switch logEntry := (lentry.entry).(type) {
+			case createObjectChange:
+				// this is a new stateObject so log the hash the value node representation of the state
+				addr = logEntry.account
+				//if isArbosAddress(*addr) {
+				//	continue
+				//}
+				rawNode := s.accountToBytes(*addr)
+				// the node has no hash so we store the key and value as the same
+				// convert it into a hashNode	
+				rawNodeHash := common.BytesToHash(rawNode)
+				// set it to nil because this is a new account
+				// for all accounts that don't have a path then we know it's a new one
+				s.accountsSeen[*addr] = nil
+				s.nodesForAccount[rawNodeHash] = rawNode
+			case createContractChange:
+				addr = &(logEntry.account)
+				//if isArbosAddress(*addr) {
+				//	continue
+				//}
+				rawNode := s.accountToBytes(*addr)
+				rawNodeHash := common.BytesToHash(rawNode)
+				s.accountsSeen[*addr] = nil
+				s.nodesForAccount[rawNodeHash] = rawNode
+			case getStateObjectEntry:
+				addr = logEntry.Account()
+				//if isArbosAddress(*addr) {
+				//	continue
+				//}
+				_, ok := s.accountsSeen[*addr]
+				if !ok {
+					// we haven't seen it so we store the nodes on the path
+					_, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(*addr)
+					if err != nil || len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
+						panic(fmt.Sprintf("GetAccountLogged(addr=%v, idx=%v) gave no data", *addr, idx))
 					}
-					hn := trie.HashNode(n)
-					oldrn, ok := nodesForAccount[hn]
-					if ok {
-						// then the raw nodes should be the same
-						if bytes.Compare(rn, oldrn) != 0 {
-							panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+					// what about getting addresses that don't exist?
+					totalAccountsInTrie++
+					s.accountsSeen[*addr] = pathHashes
+					//s.nodesForAccount[*addr] = rawNodesOnPath
+					for _, rn := range rawNodesOnPath {
+						//if len(rn) <= 32 {
+						//	log.Info("raw node is less than 32 bytes")
+						//} else {
+						//	log.Info("raw node is larger than 32")
+						//}
+						n, err := trie.PublicDecodeNode(nil, rn)
+						//if err != nil {
+						//	// this might have failed because it's a value of some kind
+						//	panic(err)
+						//}
+						if err == nil {
+							log.Info("log", "addr", *addr)
+							//log.Info("decoded node", "n", n)
+							//s.findGetCreates(*addr)
+							hn := trie.HashNode(n)
+							oldrn, ok := s.nodesForAccount[hn]
+							
+							if ok {
+								// then the raw nodes should be the same
+								if bytes.Compare(rn, oldrn) != 0 {
+									panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+								}
+							} else {
+								s.nodesForAccount[hn] = rn
+							}
+						} else {
+							// if this is an error, then we assume that this is the raw account and it can't be decoded
+							// therefore we should save the raw node make sure that we can decode this to a state object
+							ret := new(types.StateAccount)
+							err = rlp.DecodeBytes(rn, ret)
+							if err != nil {
+								log.Info("couldn't decode account", "idx", idx, "addr", *addr)
+								panic(err)
+							}
+							// now save this valueNode in the map
+							hn := trie.HashData(rn)
+							oldrn, ok := s.nodesForAccount[hn]
+							if ok {
+								if bytes.Compare(rn, oldrn) != 0 {
+									panic(fmt.Sprintf("Same hash %v has two different accounts", hn))
+								}
+							} else {
+								s.nodesForAccount[hn] = rn
+							}
 						}
+					}
+				}
+			case getStorageEntry:
+				addr = logEntry.Account()
+				//if isArbosAddress(*addr) {
+				//	continue
+				//}
+				key = logEntry.Key()
+				keykey = KeyKey{*addr, *key}
+				// ASSERT that we've sene the account before
+				_, ok := s.accountsSeen[*addr]
+				if !ok {
+					panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+				}
+			
+				_, ok = s.keysSeen[keykey]
+				if !ok {
+					// get the stateObject first it should be in stateObjects
+					obj, exist := s.stateObjects[*addr]
+					if !exist {
+						panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					}
+					//_, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
+					trieVal, pathHashes, rawNodesOnPath := obj.GetTrieStateLogged(*key)
+					var testVal common.Hash
+					testVal.SetBytes(nil)
+					if trieVal.Cmp(testVal) == 0 {
+						log.Error("Get of something that doesn't exist.", "addr", *addr, "key", *key)
 					} else {
-						nodesForAccount[hn] = rn
-					}
-				}
-			}
-		case getStorageEntry:
-			addr = logEntry.Account()
-			if isArbosAddress(*addr) {
-				continue
-			}
-			key = logEntry.Key()
-			keykey = KeyKey{*addr, *key}
-			// ASSERT that we've sene the account before
-			_, ok := accountsSeen[*addr]
-			if !ok {
-				panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
-			}
-			_, ok = keysSeen[keykey]
-			if !ok {
-				// get the stateObject first it should be in stateObjects
-				obj, exist := s.stateObjects[*addr]
-				if !exist {
-					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
-				}
-				_, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
-				if len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
-					panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) gave no data", *addr, *key))
-				}
-				keysSeen[keykey] = pathHashes
-				//nodesForKey[keykey] = rawNodesOnPath
-				for _, rn := range rawNodesOnPath {
-					n, err := trie.PublicDecodeNode(nil, rn)
-					if err != nil {
-						panic(err)
-					}
-					hn := trie.HashNode(n)
-					oldrn, ok := nodesForKey[hn]
-					if ok {
-						if bytes.Compare(rn, oldrn) != 0 {
-							panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+						if len(pathHashes) > 0 && len(rawNodesOnPath) > 0 {
+							totalKeysInTrie++
 						}
-					} else {
-						nodesForKey[hn] = rn
+					}
+					if len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
+						// this is only accepted behavior if the root is nil otherwise at least the root 
+						// is always accessed.
+						log.Info("Get keykey", "k", keykey, "b", *(logEntry.value))
+						log.Info("Stateobject", "obj", obj.data, "root", obj.data.Root)
+						if obj.data.Root.Cmp(types.EmptyRootHash) == 0 {
+							// it is correct to log nothing for this key get, maybe we just skip it altogether?
+							continue
+						} else {
+							//s.findStorageChangeInJournal(*addr, *key)
+							s.findGetSets(*addr, *key)
+							panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v, idx=%v) gave no data", *addr, *key, idx))
+						}
+					}
+					s.keysSeen[keykey] = pathHashes
+					//s.nodesForKey[keykey] = rawNodesOnPath
+					for _, rn := range rawNodesOnPath {
+						n, err := trie.PublicDecodeNode(nil, rn)
+						//if err != nil {
+						//	panic(err)
+						//}
+						if err == nil {
+							hn := trie.HashNode(n)
+							oldrn, ok := s.nodesForKey[hn]
+							if ok {
+								if bytes.Compare(rn, oldrn) != 0 {
+									panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+								}
+							} else {
+								s.nodesForKey[hn] = rn
+							}
+						} else {
+							// this is a valuenode we do the normal check that the hash is in there
+							hn := trie.HashData(rn)
+							oldrn, ok := s.nodesForKey[hn]
+							if ok {
+								if bytes.Compare(rn, oldrn) != 0 {
+									panic(fmt.Sprintf("Same hash %v hash two different valuenodes. rn=%v, oldrn=%v", hn, rn, oldrn))
+								}
+							} else {
+								s.nodesForKey[hn] = rn
+							}
+						}
 					}
 				}
+			case storageChange:
+				// we only care about NEW state created so that we can log that we've seen it		
+				//prev := *(logEntry.prevvalue)
+				//trimmedPrev := common.TrimLeftZeroes(prev[:])
+				if logEntry.prevvalue == nil {
+				//if len(trimmedPrev) == 0 {
+					// log this as a change
+					addr = logEntry.account
+					key = &(logEntry.key)
+					keykey = KeyKey{*addr, *key}
+					_, ok := s.accountsSeen[*addr]
+					if !ok {
+						panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+					}
+					_, ok = s.keysSeen[keykey]
+					if ok {
+						// this could have been seen before if a get was attempted for a 0 value
+						log.Error("New keykey seen with prev=nil", "addr", *addr, "key", *key)
+						//panic("New keykey is already seen!")
+					}
+					obj, exist := s.stateObjects[*addr]
+					if !exist {
+						panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					}
+					_, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
+					if !(len(pathHashes) == 0 && len(rawNodesOnPath) == 0) {
+						panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
+					}
+					s.keysSeen[keykey] = nil
+					log.Info("Keykey", "k", keykey)
+					// what is the current value
+					v := obj.GetState(*key)
+					rawNode := valueToLeaf(v)
+					s.nodesForKey[v] = rawNode
+				}
+			default:
 			}
-		default:
+		}
+		// no we've stored all the path hashes and the raw nodes for each key that is gotten
+		// now we log all of this information
+		// sanity checking: assert that all the raw nodes correspond to hashes in the other set
+		inAccounts := 0
+		notInAccounts := 0
+		for _, hashes := range s.accountsSeen {
+			for _, hn := range hashes {
+				_, ok := s.nodesForAccount[hn]
+				if ok {
+					inAccounts++
+				} else {
+					notInAccounts++
+				}
+			}
+		}
+		log.Info("Sanity checks.", "inAccounts", inAccounts, "notInAccounts", notInAccounts)
+		// we shouldn't cache these since they will apply to the next transaction as well
+		// instead, we should mark when one transaction ends and another begins (but this is just the same as 
+		
+		// Q: do we have any conflicting keys between the two maps that aren't empty hashes?
+		// A: no we don't so we can combine the two tries
+		for hn, _ := range s.nodesForAccount {
+			_, exists := s.nodesForKey[hn]
+			if exists {
+				log.Error("Same hash in account and state trie.", "k", hn)
+				panic("Same hash")
+			}
+		}
+
+		for hn, _ := range s.nodesForKey {
+			_, exists := s.nodesForAccount[hn]
+			if exists {
+				log.Error("Same hash in account and state trie.", "k", hn)
+				panic("Same hash")
+			}
+		}
+
+		log.Info("Hashes for account", "l", len(s.nodesForAccount))
+		log.Info("Hashes for key", "l", len(s.nodesForKey))
+		log.Info("Num accounts", "l", len(s.accountsSeen))
+		log.Info("Num keys", "l", len(s.keysSeen))
+		log.Info("Total accounts in trie", "n", totalAccountsInTrie)
+		log.Info("Total keys in tries", "n", totalKeysInTrie)
+
+		// create a trie from this data
+		rootHash, rootRaw := s.trie.RootBytes()
+		if rootRaw != nil {
+			rn, err := trie.PublicDecodeNode(nil, rootRaw)
+			if err != nil {
+				log.Error("Couldn't decode root from raw.", "hash", rootHash, "raw", rootRaw)
+				panic("Failed to decode root")
+			}
+			// merge the hashes 
+			testMap := make(map[common.Hash][]byte)
+			for hn, raw := range s.nodesForAccount {
+				testMap[hn] = raw
+			}
+			for hn, raw := range s.nodesForKey {
+				testMap[hn] = raw
+			}
+			count := trie.TrieFromNodeCount(rn, testMap)
+			log.Info("Crated hashes", "len", count)
 		}
 	}
-	// no we've stored all the path hashes and the raw nodes for each key that is gotten
-	// now we log all of this information
-	// sanity checking: assert that all the raw nodes correspond to hashes in the other set
-	inAccounts := 0
-	notInAccounts := 0
-	for _, hashes := range accountsSeen {
-		for _, hn := range hashes {
-			_, ok := nodesForAccount[hn]
-			if ok {
-				inAccounts++
-			} else {
-				notInAccounts++
-			}
-		}
-	}
-	log.Info("Sanity checks.", "inAccounts", inAccounts, "notInAccounts", notInAccounts)
 
 	// Invalidate journal because reverting across transactions is not allowed.
 	s.clearJournalAndRefund()
@@ -1241,6 +1468,17 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 type KeyKey struct {
 	addr common.Address
 	key common.Hash
+}
+
+func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
+	testMap := make(map[K]V)
+	for hn, raw := range map1 {
+		testMap[hn] = raw
+	}
+	for hn, raw := range map2 {
+		testMap[hn] = raw
+	}
+	return testMap
 }
 
 // IntermediateRoot computes the current root hash of the state trie.
@@ -1274,6 +1512,23 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		// later time.
 		workers.SetLimit(1)
 	}
+
+	// write all the existing data to file
+	// since we are confirmed no duplicated hashes, we can merge the two maps and write them to file
+	// as well as the paths for every 
+	file, err := os.OpenFile("/home/user/test.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	allNodes := mergeMaps(s.nodesForAccount, s.nodesForKey)
+	encoder := json.NewEncoder(file)
+	err = encoder.Encode(allNodes)
+	if err != nil {
+		panic(err)
+	}
+
 	if s.deterministic {
 		addressesToUpdate := make([]common.Address, 0, len(s.mutations))
 		for addr := range s.mutations {

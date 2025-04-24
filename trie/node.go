@@ -23,6 +23,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
+	_"github.com/ethereum/go-ethereum/log"
+	_"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 var indices = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "[17]"}
@@ -141,6 +143,7 @@ func mustDecodeNodeUnsafe(hash, buf []byte) node {
 }
 
 func PublicDecodeNode(hash, buf []byte) (node, error) {
+	//log.Info("PublicDecodeNode", "buf", fmt.Sprintf("%x",buf))
 	return decodeNode(hash, buf)
 }
 
@@ -166,33 +169,42 @@ func decodeNodeUnsafe(hash, buf []byte) (node, error) {
 	}
 	switch c, _ := rlp.CountValues(elems); c {
 	case 2:
+		//log.Info("Decode short", "n", hexutil.Encode(buf[:]))
 		n, err := decodeShort(hash, elems)
 		return n, wrapError(err, "short")
 	case 17:
+		//log.Info("Decode full")
 		n, err := decodeFull(hash, elems)
 		return n, wrapError(err, "full")
 	default:
+		//log.Info("Default")
 		return nil, fmt.Errorf("invalid number of list elements: %v", c)
 	}
 }
 
 func decodeShort(hash, elems []byte) (node, error) {
+	//log.Info("rlp split string")
 	kbuf, rest, err := rlp.SplitString(elems)
 	if err != nil {
+		//log.Error("rlp split string error")
 		return nil, err
 	}
 	flag := nodeFlag{hash: hash}
 	key := compactToHex(kbuf)
 	if hasTerm(key) {
 		// value node
+		//log.Info("short node has term value node")
 		val, _, err := rlp.SplitString(rest)
 		if err != nil {
+			//log.Error("rlp split string rest error")
 			return nil, fmt.Errorf("invalid value node: %v", err)
 		}
 		return &shortNode{key, valueNode(val), flag}, nil
 	}
+	//log.Info("decode ref")
 	r, _, err := decodeRef(rest)
 	if err != nil {
+		//log.Error("wrapError")
 		return nil, wrapError(err, "val")
 	}
 	return &shortNode{key, r, flag}, nil
