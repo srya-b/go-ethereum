@@ -2718,7 +2718,11 @@ func TrieFromNode(n node, preimages map[common.Hash][]byte) ([]common.Hash) {
 		//log.Info("valueNode reached", "valueNode", n)
 		//return []common.Hash{}
 		storageRoot, acc, exists := getStorageTrie(n, preimages)
+		if len(n[:]) > 32 && !exists {
+			log.Info("large valueNode doesn't exist", "v", n)
+		}
 		if exists {
+			log.Info("Was able to get storage trie")
 			// add the root to the map and recurse
 			return append([]common.Hash{acc.Root}, TrieFromNode(storageRoot, preimages)...)
 		} else {
@@ -2770,6 +2774,83 @@ func TrieFromNode(n node, preimages map[common.Hash][]byte) ([]common.Hash) {
 			finalList = append([]common.Hash{realHash}, TrieFromNode(actualNode,preimages)...)
 		}
 		return finalList
+	default:
+		panic(fmt.Sprintf("%T: invalid node: %v", n, n))
+	}
+}
+
+
+func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
+	switch n := (n).(type) {
+	case valueNode: 
+		log.Info("valueNode reached", "valueNode", n)
+		//return []common.Hash{}
+		storageRoot, acc, exists := getStorageTrie(n, preimages)
+		if len(n[:]) > 32 && !exists {
+			log.Info("large valueNode doesn't exist", "v", n)
+		}
+		if exists {
+			log.Info("Was able to get storage trie")
+			// add the root to the map and recurse
+			//return append([]common.Hash{acc.Root}, TrieFromNode(storageRoot, preimages)...)
+			return 1 + TrieFromNodeCount(storageRoot, preimages)
+		} else {
+			log.Info("Account", "acct", acc)
+			return 1
+		}
+	case *shortNode:
+		// shortNodes are extensions or valueNodes
+		// they are usually stored as hashNodes so don't save anything here
+		log.Info("shortNode expansion", "short node", HashNode(n))
+		switch (n.Val).(type) {
+		case *fullNode: panic("child of short node is a full node")
+		default:
+		}
+		return TrieFromNodeCount(n.Val, preimages)
+	case *fullNode:
+		// exension nodes
+		log.Info("fullNode expansion", "full node", HashNode(n), "n", n)
+		ok := sanityCheckFullNode(n)
+		if !ok {
+			panic(fmt.Sprintf("Failed to check fullNode. node=%v", n))
+		}
+		//finalList := []common.Hash{}
+		final := 0
+		for _,child := range &n.Children {
+			// save all hashes from subtrie
+			if child != nil {
+				// DEBUG
+				_, ok := child.(hashNode)
+				if !ok { panic("child of full node not a hashnode") }
+				// DEBUG
+				//restPath := TrieFromNode(child, preimages)
+				count := TrieFromNodeCount(child, preimages)
+				//finalList = append(finalList, restPath...)
+				final = final + count
+			}
+		}
+		//return finalList
+		return final
+	case hashNode:
+		// in some cases the hashNode isn't in the pre-images map so try a different one
+		realHash := common.BytesToHash(n)
+		hn := HashNode(n)
+		if hn != realHash {
+			panic(fmt.Sprintf("Hasnode hashes unequal! HashNode: %v, BytesToHash: %v, hn: %v", n, realHash, hn))
+		}
+		actualNodeRaw, exists := preimages[realHash]
+		actualNode, err := decodeNode(nil, actualNodeRaw)
+		//actualNode, err := decodeNode(realHash.Bytes(), actualNodeRaw)
+		//finalList := []common.Hash{}
+		final := 0
+		// if it is expanded go down the path
+		if err == nil && exists {
+			log.Info("Expanding hashNode in creating subtrie.", "hash", realHash)
+			//finalList = append([]common.Hash{realHash}, TrieFromNode(actualNode,preimages)...)
+			final = final + TrieFromNodeCount(actualNode, preimages)
+		}
+		//return finalList
+		return final
 	default:
 		panic(fmt.Sprintf("%T: invalid node: %v", n, n))
 	}
@@ -3265,6 +3346,15 @@ func HashNode (n node) common.Hash {
 	default: return common.BytesToHash(hash.(hashNode))
 	}
 	//return common.BytesToHash(hash)
+}
+
+func HashData(buf []byte) common.Hash {
+	h := newHasher(false)
+	defer func() {
+		returnHasherToPool(h)
+	}()
+	hash := h.hashData(buf[:])
+	return common.BytesToHash(hash)
 }
 
 func HashNodeAsHashNode(n node) node {
