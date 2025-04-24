@@ -419,7 +419,6 @@ func (ch getStateObjectEntry) toString() string {
 func (ch getStorageEntry) toString() string {
 	return "getStorage(" + akv(ch.account, ch.key, ch.value) + ")"
 }
-
 func (ch getStorageEntry) Account() *common.Address {
 	return ch.account
 }

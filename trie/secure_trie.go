@@ -82,6 +82,10 @@ func (t *StateTrie) RootString() string {
 	return n.String()
 }
 
+func (t *StateTrie) RootBytes() (common.Hash, []byte) {
+	return t.trie.RootBytes()
+}
+
 // MustGet returns the value for key stored in the trie.
 // The value bytes must not be modified by the caller.
 //
@@ -106,10 +110,16 @@ func (t *StateTrie) GetStorage(_ common.Address, key []byte) ([]byte, error) {
 
 func (t *StateTrie) GetStorageLogged(_ common.Address, key []byte) ([]byte, []common.Hash, [][]byte, error) {
 	enc, pathHashes, rawNodesOnPath, err := t.trie.GetLogged(t.hashKey(key))
-	if err != nil || len(enc) == 0 {
+	if err != nil { //|| len(enc) == 0 {
+		//log.Info("getstorage err")
 		return nil, nil, nil, err
 	}
+	if len(enc) == 0 {
+		//log.Info("enc == 0", "pathHashes", len(pathHashes))
+		return nil, pathHashes, rawNodesOnPath, err
+	}
 	_, content, _, err := rlp.Split(enc)
+	//log.Info("return content", "value", common.BytesToHash(content), "pathHashes", len(pathHashes))
 	return content, pathHashes, rawNodesOnPath, err
 }
 
