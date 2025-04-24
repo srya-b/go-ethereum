@@ -189,6 +189,7 @@ type Trie interface {
 
 
 	RootString() string
+	RootBytes() (common.Hash, []byte)
 }
 
 type OpenTrie interface {
