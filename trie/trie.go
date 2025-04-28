@@ -250,7 +250,7 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 		nodes = [][]byte{}
 		return nil, pathHashes, nodes, nil, false, nil
 	case valueNode:
-		log.Warn("Value node", "n", n)
+		//log.Warn("Value node", "n", n)
 		trimmed := common.TrimLeftZeroes(n[:])
 		//pathHashes = []common.Hash{HashNode(n)}
 		h := newHasher(false)
@@ -262,15 +262,15 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 		pathHashes = []common.Hash{common.BytesToHash(hash)}
 
 		// can we find state accounts?
-		acc := new(types.StateAccount)
-		err := rlp.DecodeBytes(n, acc)
-		if err == nil {
-			log.Info("This valueNode is an account:", "acc", acc, "v", n)
-		}
+		// acc := new(types.StateAccount)
+		// err := rlp.DecodeBytes(n, acc)
+		// if err == nil {
+		// 	log.Info("This valueNode is an account:", "acc", acc, "v", n)
+		// }
 		nodes = [][]byte{trimmed}
 		return n, pathHashes, nodes, n, false, nil
 	case *shortNode:
-		log.Info("getLogged shortNode", "n", n)
+		//log.Info("getLogged shortNode", "n", n)
 		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
 			// key not found in trie
 			return nil, nil, nil, n, false, nil
@@ -280,23 +280,23 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 		newsn := &shortNode{Key: hexToCompact(n.Key), Val: n.Val}
 		//newsn := &shortNode{Key: n.Key, Val: n.Val}
 		newrawn, err := rlp.EncodeToBytes(newsn)
-		log.Info("Both hashes", "n", HashNode(n), "newn", HashNode(newsn))
+		//log.Info("Both hashes", "n", HashNode(n), "newn", HashNode(newsn))
 		//uncleanrawn, err := rlp.EncodeToBytes( &shortNode{Key: n.Key, Val: n.Val} )
 		if err != nil {
 			panic(err)
 		}
 
-		switch t := (n.Val).(type) {
-		case valueNode:
-			acc := new(types.StateAccount)
-			err := rlp.DecodeBytes(common.TrimLeftZeroes(t[:]), acc)
-			if err == nil {
-				// if this is a state account check that the root hash is the same
-				log.Info("Hash of the root of storage account", "root", acc.Root)
-			} else {
-				log.Info("Not an account", "n", t)
-			}
-		}
+		//switch t := (n.Val).(type) {
+		//case valueNode:
+		//	acc := new(types.StateAccount)
+		//	err := rlp.DecodeBytes(common.TrimLeftZeroes(t[:]), acc)
+		//	if err == nil {
+		//		// if this is a state account check that the root hash is the same
+		//		log.Info("Hash of the root of storage account", "root", acc.Root)
+		//	} else {
+		//		log.Info("Not an account", "n", t)
+		//	}
+		//}
 
 		//testraw := nodeToBytes(&shortNode{Key: hexToCompact(n.Key), Val: n.Val})
 		//log.Info("testing", "n", n, "newsn", newsn, "testraw", asHex(testraw), "newrawn", asHex(newrawn))
@@ -327,7 +327,7 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 			n = n.copy()
 			n.Val = newnode
 		}
-		log.Info("new shortNode", "n", newsn)
+		//log.Info("new shortNode", "n", newsn)
 		return value, pathHashes, nodes, n, didResolve, err
 	case *fullNode:
 		//log.Info("Full Node string", "n", n.String())
@@ -350,7 +350,7 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 			}
 		}		
 		newfn := &fullNode{hChildren, nodeFlag{dirty: false}}
-		log.Info("Full Node Hash", "h", HashNode(newfn), "n", newfn)
+		//log.Info("Full Node Hash", "h", HashNode(newfn), "n", newfn)
 		rawnewfn, err := rlp.EncodeToBytes(newfn)
 		if err != nil {
 			panic(err)

@@ -1,12 +1,22 @@
 package state
 
 import (
+	"encoding/json"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 )
 
 type wasmActivation struct {
 	moduleHash common.Hash
+}
+
+func (ch wasmActivation) deepCopy() journalEntry {
+	var m common.Hash
+	m.SetBytes(ch.moduleHash[:])
+	return wasmActivation{
+		moduleHash: m,
+	}
 }
 
 func (ch wasmActivation) toString() string {
@@ -25,6 +35,14 @@ func (ch wasmActivation) copy() journalEntry {
 	return wasmActivation{
 		moduleHash: ch.moduleHash,
 	}
+}
+
+func (ch wasmActivation) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ch)
+}
+
+func (ch *wasmActivation) UnmarshalJSON(b []byte) error {
+	return json.Unmarshal(b, &ch)
 }
 
 // Updates the Rust-side recent program cache
@@ -50,6 +68,14 @@ func (ch CacheWasm) dirtied() *common.Address {
 	return nil
 }
 
+func (ch CacheWasm) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ch)
+}
+
+func (ch CacheWasm) UnmarshalJSON(b []byte) error {
+	return json.Unmarshal(b, &ch)
+}
+
 func (ch CacheWasm) copy() journalEntry {
 	return CacheWasm{
 		ModuleHash: ch.ModuleHash,
@@ -59,11 +85,30 @@ func (ch CacheWasm) copy() journalEntry {
 	}
 }
 
+func (ch CacheWasm) deepCopy() journalEntry {
+	var h common.Hash
+	h.SetBytes(ch.ModuleHash[:])
+	return CacheWasm{
+		ModuleHash: h,
+		Version: ch.Version,
+		Tag: ch.Tag,
+		Debug: ch.Debug,
+	}
+}
+
 type EvictWasm struct {
 	ModuleHash common.Hash
 	Version    uint16
 	Tag        uint32
 	Debug      bool
+}
+
+func (ch EvictWasm) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ch)
+}
+
+func (ch EvictWasm) UnmarshalJSON(b []byte) error {
+	return json.Unmarshal(b, &ch)
 }
 
 func (ch EvictWasm) toString() string {
@@ -91,6 +136,18 @@ func (ch EvictWasm) copy() journalEntry {
 	}
 }
 
+func (ch EvictWasm) deepCopy() journalEntry {
+	var h common.Hash
+	h.SetBytes(ch.ModuleHash[:])
+	return CacheWasm{
+		ModuleHash: h,
+		Version: ch.Version,
+		Tag: ch.Tag,
+		Debug: ch.Debug,
+	}
+}
+
+
 // Arbitrum: only implemented by createZombieChange
 type possibleZombie interface {
 	// Arbitrum: return true if this change should, on its own, create an empty account.
@@ -101,6 +158,23 @@ type possibleZombie interface {
 func isZombie(entry journalEntry) bool {
 	possiblyZombie, isPossiblyZombie := entry.(possibleZombie)
 	return isPossiblyZombie && possiblyZombie.isZombie()
+}
+
+func (ch createZombieChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+	}{
+		Account: *(ch.account),
+	})
+}
+
+func (ch createZombieChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+	}{}
+	err := json.Unmarshal(b, &ch)
+	ch.account = &(a.Account)
+	return err
 }
 
 func (ch createZombieChange) toString() string {
@@ -118,6 +192,14 @@ func (ch createZombieChange) dirtied() *common.Address {
 func (ch createZombieChange) copy() journalEntry {
 	return createZombieChange{
 		account: ch.account,
+	}
+}
+
+func (ch createZombieChange) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.account[:])
+	return createZombieChange{
+		account: &a,
 	}
 }
 

@@ -194,7 +194,7 @@ type StateDB struct {
 	keysSeen map[KeyKey][]common.Hash
 	nodesForAccount map[common.Hash][]byte
 	nodesForKey map[common.Hash][]byte
-	loggedJournals [][]logJournalEntry
+	loggedJournals [][]LogJournalEntry
 	loggedDirties []map[common.Address]int
 	loggedOffsets []int
 
@@ -1045,7 +1045,7 @@ func isArbosAddress(addr common.Address) bool {
 
 func (s *StateDB) findStorageChangeInJournal(addr common.Address, key common.Hash) {
 	for _, lentry := range s.journal.logEntries {
-		switch logEntry := (lentry.entry).(type) {
+		switch logEntry := (lentry.Entry).(type) {
 		case storageChange:
 			a := *(logEntry.account)
 			k := logEntry.key
@@ -1063,7 +1063,7 @@ func (s *StateDB) findStorageChangeInJournal(addr common.Address, key common.Has
 
 func (s *StateDB) findGetSets(addr common.Address, key common.Hash) {
 	for idx, lentry := range s.journal.logEntries {
-		switch logEntry := (lentry.entry).(type) {
+		switch logEntry := (lentry.Entry).(type) {
 		case getStorageEntry:
 			a := *(logEntry.account)
 			k := *(logEntry.key)
@@ -1087,7 +1087,7 @@ func (s *StateDB) findGetSets(addr common.Address, key common.Hash) {
 
 func (s *StateDB) findGetCreates(addr common.Address) {
 	for idx, lentry := range s.journal.logEntries {
-		switch logEntry := (lentry.entry).(type) {
+		switch logEntry := (lentry.Entry).(type) {
 		case getStateObjectEntry:
 			a := *(logEntry.account)
 			if addr.Cmp(a) == 0 {
@@ -1181,10 +1181,11 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 			var addr *common.Address
 			var key *common.Hash
 			var keykey KeyKey
-			switch logEntry := (lentry.entry).(type) {
+			switch logEntry := (lentry.Entry).(type) {
 			case createObjectChange:
 				// this is a new stateObject so log the hash the value node representation of the state
 				addr = logEntry.account
+				log.Info("create object", "addr", *addr)
 				//if isArbosAddress(*addr) {
 				//	continue
 				//}
@@ -1197,7 +1198,14 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 				s.accountsSeen[*addr] = nil
 				s.nodesForAccount[rawNodeHash] = rawNode
 			case createContractChange:
+				// need to check if this already exists, sometimes the object is created before
+				// the contract is "created"
 				addr = &(logEntry.account)
+				_, ok := s.accountsSeen[*addr]
+				if ok {
+					// this object is created and then set as a contract
+					log.Info("contract crearte of existing obj", "addr", *addr)
+				}
 				//if isArbosAddress(*addr) {
 				//	continue
 				//}
@@ -1491,20 +1499,51 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	}
 
 	// write all the existing data to file
+	// write all the logged Journals to file where each is a transaction
+
 	// since we are confirmed no duplicated hashes, we can merge the two maps and write them to file
 	// as well as the paths for every 
-	file, err := os.OpenFile("/home/user/test.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
+	//file, err := os.OpenFile("/home/user/test.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	//if err != nil {
+	//	panic(err)
+	//}
+	//file.Truncate(0)
+	//defer file.Close()
 
-	allNodes := mergeMaps(s.nodesForAccount, s.nodesForKey)
-	encoder := json.NewEncoder(file)
-	err = encoder.Encode(allNodes)
+	//allNodes := mergeMaps(s.nodesForAccount, s.nodesForKey)
+	//encoder := json.NewEncoder(file)
+	jsonData, err := json.Marshal(s.loggedJournals)
 	if err != nil {
 		panic(err)
 	}
+	//err = encoder.Encode(allNodes)
+	//err = encoder.Encode(s.loggedJournals)
+	//if err != nil {
+	//	panic(err)
+	//}
+	err = os.WriteFile("/home/user/test.json", jsonData, 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	// try to read the json back
+	//file, err = os.OpenFile("/home/user/test.json", os.O_RDONLY, 0644)
+	//if err != nil {
+	//	panic(err)
+	//}
+	//decoder := json.NewDecoder(file)
+	fileData, err := os.ReadFile("/home/user/test.json")
+	var testJournal [][]LogJournalEntry
+	err = json.Unmarshal(fileData, &testJournal)
+	if err != nil {
+		panic(err)
+	}
+	//err = decoder.Decode(&testJournal)
+	//if err != nil {
+	//	panic(err)
+	//}
+	log.Info("What is should be", "entry", fmt.Sprintf("%v, %v, %v", s.loggedJournals[0][0].Entry, s.loggedJournals[0][1].Entry, s.loggedJournals[0][2].Entry))
+	log.Info("decoded logged journals", "entry", fmt.Sprintf("%v, %v, %v", testJournal[0][0].Entry, testJournal[0][1].Entry, testJournal[0][2].Entry))
 
 	// Although naively it makes sense to retrieve the account trie and then do
 	// the contract storage and account updates sequentially, that short circuits
