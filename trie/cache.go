@@ -549,6 +549,8 @@ func getStorageTrie(n valueNode, preimages map[common.Hash][]byte) (node, *types
 		//log.Info("decode storage", "node", n)
 		return nilValueNode, acc, false
 	}
+	
+	log.Info("Found a state account:", "acc", acc)
 
 	storageTrieRootRaw, exists := preimages[acc.Root]
 	if exists {
@@ -2783,25 +2785,25 @@ func TrieFromNode(n node, preimages map[common.Hash][]byte) ([]common.Hash) {
 func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 	switch n := (n).(type) {
 	case valueNode: 
-		log.Info("valueNode reached", "valueNode", n)
+		//log.Info("valueNode reached", "valueNode", n)
 		//return []common.Hash{}
-		storageRoot, acc, exists := getStorageTrie(n, preimages)
+		storageRoot, _, exists := getStorageTrie(n, preimages)
 		if len(n[:]) > 32 && !exists {
 			log.Info("large valueNode doesn't exist", "v", n)
 		}
 		if exists {
-			log.Info("Was able to get storage trie")
+			//log.Info("Was able to get storage trie")
 			// add the root to the map and recurse
 			//return append([]common.Hash{acc.Root}, TrieFromNode(storageRoot, preimages)...)
 			return 1 + TrieFromNodeCount(storageRoot, preimages)
 		} else {
-			log.Info("Account", "acct", acc)
+			//log.Info("Account", "acct", acc)
 			return 1
 		}
 	case *shortNode:
 		// shortNodes are extensions or valueNodes
 		// they are usually stored as hashNodes so don't save anything here
-		log.Info("shortNode expansion", "short node", HashNode(n))
+		//log.Info("shortNode expansion", "short node", HashNode(n))
 		switch (n.Val).(type) {
 		case *fullNode: panic("child of short node is a full node")
 		default:
@@ -2809,7 +2811,7 @@ func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 		return TrieFromNodeCount(n.Val, preimages)
 	case *fullNode:
 		// exension nodes
-		log.Info("fullNode expansion", "full node", HashNode(n), "n", n)
+		//log.Info("fullNode expansion", "full node", HashNode(n), "n", n)
 		ok := sanityCheckFullNode(n)
 		if !ok {
 			panic(fmt.Sprintf("Failed to check fullNode. node=%v", n))
@@ -2845,7 +2847,7 @@ func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 		final := 0
 		// if it is expanded go down the path
 		if err == nil && exists {
-			log.Info("Expanding hashNode in creating subtrie.", "hash", realHash)
+			//log.Info("Expanding hashNode in creating subtrie.", "hash", realHash)
 			//finalList = append([]common.Hash{realHash}, TrieFromNode(actualNode,preimages)...)
 			final = final + TrieFromNodeCount(actualNode, preimages)
 		}
