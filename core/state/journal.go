@@ -22,6 +22,8 @@ import (
 	"math/big"
 	"slices"
 	"sort"
+	"bytes"
+	"encoding/json"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common"
@@ -49,18 +51,410 @@ type journalEntry interface {
 	// copy returns a deep-copied journal entry.
 	copy() journalEntry
 
+	deepCopy() journalEntry
+
 	toString() string
+	
+	//MarshalJSON() ([]byte, error)
+	//UnmarshalJSON(b []byte) error
 }
 
-type logJournalEntry struct {
-	entry journalEntry
-	reverted bool
+type LogJournalEntry struct {
+	Entry journalEntry
+	Reverted bool
 }
 
-func (l logJournalEntry) toString() string {
-	entryString := l.entry.toString()
+type generic struct {
+	Type string `json:"type"`
+	Data json.RawMessage `json:"data"`
+}
+
+var createObjectChangeS string = "createObjectChange"
+var createZombieChangeS string = "createZombieChange"
+var createContractChangeS string = "createContractChange"
+var selfDestructChangeS string = "selfDestructChange"
+var balanceChangeS string = "balanceChange"
+var nonceChangeS string = "nonceChange"
+var storageChangeS string = "storageChange"
+var codeChangeS string = "codeChange"
+var refundChangeS string = "refundChange"
+var addLogChangeS string = "addLogChange"
+var addPreimageChangeS string = "addPreimageChange"
+var touchChangeS string = "touchChange"
+var accessListAddAccountChangeS string = "accessListAddAccountChange"
+var accessListAddSlotChangeS string = "accessListAddSlotChange"
+var transientStorageChangeS string = "transientStorageChange"
+var getStateObjectEntryS string = "getStateObjectEntry"
+var getStorageEntryS string = "getStorageEntryS"
+var wasmActivationS string = "wasmActivation"
+var CacheWasmS string = "CacheWasm"
+var EvictWasmS string = "EvictWasm"
+
+
+func (l LogJournalEntry) MarshalJSON() ([]byte, error) {
+	switch entry := (l.Entry).(type) {
+	case createObjectChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: createObjectChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+	case createZombieChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: createZombieChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+	case createContractChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: createContractChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case selfDestructChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: selfDestructChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case balanceChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: balanceChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case nonceChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: nonceChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case storageChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: storageChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case codeChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: codeChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case refundChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: refundChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case addLogChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: addLogChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case addPreimageChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: addPreimageChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case touchChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: touchChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case accessListAddAccountChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: accessListAddAccountChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case accessListAddSlotChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: accessListAddSlotChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case transientStorageChange:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: transientStorageChangeS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case getStateObjectEntry:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: getStateObjectEntryS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case getStorageEntry:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: getStorageEntryS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case wasmActivation:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: wasmActivationS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case CacheWasm:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: CacheWasmS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	case EvictWasm:
+		d, err := entry.MarshalJSON()
+		if err == nil {
+			return json.Marshal(&generic{
+				Type: EvictWasmS,
+				Data: d,
+			})
+		} else {
+			panic(err)
+		}
+		return entry.MarshalJSON()
+	default:
+		return nil, nil
+	}
+}
+
+func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
+	var out generic
+	if err := json.Unmarshal(b, &out); err != nil {
+		panic(err)
+	}
+
+	//switch entry := (l.Entry).(type) {
+	switch out.Type {
+	case createObjectChangeS:
+		var res createObjectChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res	
+	case createZombieChangeS:
+		var res createZombieChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case createContractChangeS:
+		var res createContractChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case selfDestructChangeS:
+		var res selfDestructChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case balanceChangeS:
+		var res balanceChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case nonceChangeS:
+		var res nonceChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case storageChangeS:
+		var res storageChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case codeChangeS:
+		var res codeChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case refundChangeS:
+		var res refundChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case addLogChangeS:
+		var res addLogChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case addPreimageChangeS:
+		var res addPreimageChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case touchChangeS:
+		var res touchChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case accessListAddAccountChangeS:
+		var res accessListAddAccountChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case accessListAddSlotChangeS:
+		var res accessListAddSlotChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case transientStorageChangeS:
+		var res transientStorageChange
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case getStateObjectEntryS:
+		var res getStateObjectEntry
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case getStorageEntryS:
+		var res getStorageEntry
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case wasmActivationS:
+		var res wasmActivation
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case CacheWasmS:
+		var res CacheWasm
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	case EvictWasmS:
+		var res EvictWasm
+		if err := res.UnmarshalJSON(out.Data); err != nil {
+			panic(err)
+		}
+		l.Entry = res
+	default:
+		return nil
+	}
+	return nil
+}
+
+
+func (l LogJournalEntry) toString() string {
+	entryString := l.Entry.toString()
 	if entryString != "" {
-		if l.reverted {
+		if l.Reverted {
 			return entryString + " reverted"
 		} else {
 			return entryString
@@ -70,15 +464,15 @@ func (l logJournalEntry) toString() string {
 	}
 }
 
-func (l logJournalEntry) copy() logJournalEntry {
-	return logJournalEntry{
-			entry: l.entry.copy(),
-			reverted: l.reverted,
+func (l LogJournalEntry) copy() LogJournalEntry {
+	return LogJournalEntry{
+			Entry: l.Entry.copy(),
+			Reverted: l.Reverted,
 	}
 }
 
-func (ch *logJournalEntry) logRevert(s* StateDB) {
-	ch.reverted = true
+func (ch *LogJournalEntry) logRevert(s* StateDB) {
+	ch.Reverted = true
 }
 
 // journal contains the list of state modifications applied since the last state
@@ -94,7 +488,7 @@ type journal struct {
 	nextRevisionId int
 	logEntries []logJournalEntry
 	logDirties map[common.Address]int
-	txLogEntries [][]logJournalEntry
+	txLogEntries [][]LogJournalEntry
 	logOffset int
 }
 
@@ -149,11 +543,11 @@ func (j *journal) append(entry journalEntry) {
 	// got getstate logs, only add to logEntries and increment offset
 	switch entry.(type) {
 	case getStateObjectEntry, getStorageEntry:
-		j.logEntries = append(j.logEntries, logJournalEntry{entry: entry, reverted: false})
+		j.logEntries = append(j.logEntries, LogJournalEntry{Entry: entry.deepCopy(), Reverted: false})
 		j.logOffset++
 	default:
 		j.entries = append(j.entries, entry)
-		j.logEntries = append(j.logEntries, logJournalEntry{entry: entry, reverted: false})
+		j.logEntries = append(j.logEntries, LogJournalEntry{Entry: entry.deepCopy(), Reverted: false})
 		if addr := entry.dirtied(); addr != nil {
 			j.dirties[*addr]++
 			j.logDirties[*addr]++
@@ -174,9 +568,9 @@ func (j *journal) findReverseOffset(idx int, prev int) (offset int) {
 		}
 		// skip reverted entries and getstate entries because they don't exist in the 
 		// actual journal
-		_, getobjectok := (j.logEntries[i].entry).(getStateObjectEntry)
-		_, getstorageok := (j.logEntries[i].entry).(getStorageEntry)
-		if j.logEntries[i].reverted == true || getobjectok || getstorageok {
+		_, getobjectok := (j.logEntries[i].Entry).(getStateObjectEntry)
+		_, getstorageok := (j.logEntries[i].Entry).(getStorageEntry)
+		if j.logEntries[i].Reverted == true || getobjectok || getstorageok {
 			offset--
 		} else {
 			return offset
@@ -193,10 +587,10 @@ func (j *journal) findReverseOffset(idx int, prev int) (offset int) {
 	return offset
 }
 
-func numGets(logEntries []logJournalEntry) int {
+func numGets(logEntries []LogJournalEntry) int {
 	total := 0
 	for _, entry := range logEntries {
-		switch (entry.entry).(type) {
+		switch (entry.Entry).(type) {
 		case getStateObjectEntry, getStorageEntry:
 			total++
 		default:
@@ -205,12 +599,12 @@ func numGets(logEntries []logJournalEntry) int {
 	return total
 }
 
-func noGetReverted(logEntries []logJournalEntry) bool {
+func noGetReverted(logEntries []LogJournalEntry) bool {
 	// check that no Get is ever reverted, because that doesn't make sense
 	for _, entry := range logEntries {
-		switch (entry.entry).(type) {
+		switch (entry.Entry).(type) {
 		case getStateObjectEntry, getStorageEntry:
-			if entry.reverted {
+			if entry.Reverted {
 				return false
 			}
 		default:
@@ -229,19 +623,19 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 	offset := j.logOffset
 	for i := len(j.entries) - 1; i >= snapshot; i-- {
 		// if the current logEntry is reverted loop until to find an offset that isn't
-		_, getobjectok := (j.logEntries[i+offset].entry).(getStateObjectEntry)
-		_, getstorageok := (j.logEntries[i+offset].entry).(getStorageEntry)
+		_, getobjectok := (j.logEntries[i+offset].Entry).(getStateObjectEntry)
+		_, getstorageok := (j.logEntries[i+offset].Entry).(getStorageEntry)
 
-		if j.logEntries[i+offset].reverted == true || getobjectok || getstorageok {
+		if j.logEntries[i+offset].Reverted == true || getobjectok || getstorageok {
 			offset = j.findReverseOffset(i, offset)
-			_, getobjectok = (j.logEntries[i+offset].entry).(getStateObjectEntry)
-			_, getstorageok = (j.logEntries[i+offset].entry).(getStorageEntry)
+			_, getobjectok = (j.logEntries[i+offset].Entry).(getStateObjectEntry)
+			_, getstorageok = (j.logEntries[i+offset].Entry).(getStorageEntry)
 			// NOTE: the below commented out conditional is no longer valid because you can reverse because of gets rather than revertes so i+offset+1 doesn't always have to be reverted.
 			//if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) || getobjectok || getstorageok {
-			if !(j.logEntries[i+offset].reverted == false) || getobjectok || getstorageok {
+			if !(j.logEntries[i+offset].Reverted == false) || getobjectok || getstorageok {
 				log.Info("Computed", "offset", offset, "idx", i)
 				log.Info("SPecial cases", "gets", numGets(j.logEntries), "noGetReverted", noGetReverted(j.logEntries))
-				panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v", j.logEntries[i+offset].reverted, j.logEntries[i+offset+1].reverted, getobjectok, getstorageok))
+				panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v", j.logEntries[i+offset].Reverted, j.logEntries[i+offset+1].Reverted, getobjectok, getstorageok))
 			}
 		}
 
@@ -250,7 +644,7 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		// in log entries just mark them reverted
 		j.logEntries[i+offset].logRevert(statedb)
 
-		if j.logEntries[i+offset].reverted == false {
+		if j.logEntries[i+offset].Reverted == false {
 			panic("logRevert not changed actual object")
 		}
 		j.logOffset++
@@ -304,7 +698,7 @@ func (j *journal) logLength() int {
 // copy returns a deep-copied journal.
 func (j *journal) copy() *journal {
 	entries := make([]journalEntry, 0, j.length())
-	logEntries := make([]logJournalEntry, 0, j.logLength())
+	logEntries := make([]LogJournalEntry, 0, j.logLength())
 	for i := 0; i < j.length(); i++ {
 		entries = append(entries, j.entries[i].copy())
 	}
@@ -533,14 +927,40 @@ func (ch getStateObjectEntry) copy() journalEntry {
 	}
 }
 
+func (ch getStateObjectEntry) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes((*ch.account)[:])
+	return getStateObjectEntry{
+		account: &a,
+	}
+}
+
 func (ch getStateObjectEntry) Account() *common.Address {
 	return ch.account
 }
 
-
 func (ch getStateObjectEntry) toString() string {
 	return "getStateObject(" + ap(ch.account) + ")"
 }
+
+func (ch getStateObjectEntry) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+	}{
+		Account: *(ch.account),
+	})
+	//return json.Marshal(ch)
+}
+
+func (ch *getStateObjectEntry) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = &(a.Account)
+	return err
+}
+
 
 // getStorageEntry
 func (ch getStorageEntry) toString() string {
@@ -573,6 +993,60 @@ func (ch getStorageEntry) copy() journalEntry {
 	}
 }
 
+func (ch getStorageEntry) deepCopy() journalEntry {
+	var a common.Address
+	var k common.Hash
+	a.SetBytes((ch.account)[:])
+	k.SetBytes((ch.key)[:])
+	var v *common.Hash
+	if ch.value == nil {
+		v = nil
+	} else {
+		v = new(common.Hash)
+		v.SetBytes(ch.value[:])
+	}
+	//v.SetBytes((ch.value)[:])
+	return getStorageEntry{
+		account: &a,
+		key: &k,
+		value: v,
+	}
+}
+
+func (ch getStorageEntry) MarshalJSON() ([]byte, error) {
+	var v common.Hash
+	if ch.value != nil {
+		v.SetBytes(ch.value[:])
+	}
+	return json.Marshal(&struct{
+		Account common.Address
+		Key common.Hash
+		Value common.Hash
+	}{
+		Account: *(ch.account),
+		Key: *(ch.key),
+		Value: v,
+	})
+		
+}
+func (ch *getStorageEntry ) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+		Key common.Hash
+		Value common.Hash
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = &a.Account
+	ch.key = &a.Key
+	var emptyHash common.Hash
+	if a.Value.Cmp(emptyHash) == 0 {
+		ch.value = nil
+	} else {
+		ch.value = &(a.Value)
+	}
+	return err
+}
+
 // createObjectChange
 func (ch createObjectChange) toString() string {
 	return "createObjectChange(" + ap(ch.account) + ")"
@@ -592,6 +1066,32 @@ func (ch createObjectChange) copy() journalEntry {
 	}
 }
 
+func (ch createObjectChange) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.account[:])
+	return createObjectChange{
+		account: &a,
+	}
+}
+
+func (ch createObjectChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+	}{
+		Account: *(ch.account),
+	})
+}
+
+func (ch *createObjectChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = &(a.Account)
+	return err
+}
+
+
 // createContractChange
 func (ch createContractChange) toString() string {
 	return "createContract(" + ap(&ch.account) + ")"
@@ -610,6 +1110,32 @@ func (ch createContractChange) copy() journalEntry {
 		account: ch.account,
 	}
 }
+
+func (ch createContractChange) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.account[:])
+	return createContractChange{
+		account: a,
+	}
+}
+
+func (ch createContractChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+	}{
+		Account: ch.account,
+	})
+}
+func (ch *createContractChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = a.Account
+	return err
+}
+
+
 
 // selfDestructChange
 func (ch selfDestructChange) toString() string {
@@ -633,6 +1159,45 @@ func (ch selfDestructChange) copy() journalEntry {
 	}
 }
 
+func (ch selfDestructChange) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.account[:])
+	pb := ch.prevbalance.Clone()
+	return selfDestructChange{
+		account: &a,
+		prev: ch.prev,
+		prevbalance: pb,
+	}
+}
+
+func (ch selfDestructChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+		Prev bool
+		PrevBalance uint256.Int
+	}{
+		Account: *(ch.account),
+		Prev: ch.prev,
+		PrevBalance: *(ch.prevbalance),
+	})
+}
+
+func (ch *selfDestructChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+		Prev bool
+		PrevBalance uint256.Int
+	}{}
+
+	err := json.Unmarshal(b, a)
+	ch.account = &(a.Account)
+	ch.prev = a.Prev
+	ch.prevbalance = &(a.PrevBalance)
+	return err
+}
+
+
+
 var ripemd = common.HexToAddress("0000000000000000000000000000000000000003")
 
 // touchChange
@@ -652,6 +1217,32 @@ func (ch touchChange) copy() journalEntry {
 		account: ch.account,
 	}
 }
+
+func (ch touchChange) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.account[:])
+	return touchChange{
+		account: &a,
+	}
+}
+
+func (ch touchChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+	}{
+		Account: *(ch.account),
+	})
+}
+func (ch *touchChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = &(a.Account)
+	return err
+}
+
+
 
 // balanceChange
 func (ch balanceChange) toString() string {
@@ -673,6 +1264,36 @@ func (ch balanceChange) copy() journalEntry {
 	}
 }
 
+func (ch balanceChange) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.account[:])
+	return balanceChange{
+		account: &a,
+		prev: ch.prev.Clone(),
+	}
+}
+
+func (ch balanceChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+		Prev uint256.Int
+	}{
+		Account: *(ch.account),
+		Prev: *(ch.prev),
+	})
+}
+func (ch *balanceChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+		Prev uint256.Int
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = &(a.Account)
+	ch.prev = &(a.Prev)
+	return err
+}
+
+
 // nonceChange
 func (ch nonceChange) toString() string {
 	return "nonceChange(" + ap(ch.account) + fmt.Sprintf(", prev=%v)",ch.prev)
@@ -693,6 +1314,36 @@ func (ch nonceChange) copy() journalEntry {
 	}
 }
 
+func (ch nonceChange) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.account[:])
+	return nonceChange{
+		account: &a,
+		prev: ch.prev,
+	}
+}
+
+func (ch nonceChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+		Prev uint64
+	}{
+		Account: *(ch.account),
+		Prev: ch.prev,
+	})
+}
+func (ch *nonceChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+		Prev uint64
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = &(a.Account)
+	ch.prev = a.Prev
+	return err
+}
+
+
 // codeChange
 func (ch codeChange) toString() string {
 	return ""
@@ -712,6 +1363,40 @@ func (ch codeChange) copy() journalEntry {
 		prevCode: ch.prevCode,
 	}
 }
+
+func (ch codeChange) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.account[:])
+	return codeChange{
+		account: &a,
+		prevcode: bytes.Clone(ch.prevcode),
+		prevhash: bytes.Clone(ch.prevhash),
+	}
+}
+
+
+func (ch codeChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+		Prevhash common.Hash
+	}{
+		Account: *(ch.account),
+		Prevhash: common.BytesToHash(common.CopyBytes(ch.prevhash)),
+	})
+		
+}
+func (ch *codeChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+		Prevhash common.Hash
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = &(a.Account)
+	ch.prevhash = common.CopyBytes(a.Prevhash[:])
+	ch.prevcode = nil
+	return err
+}
+
 
 // storageCahnge
 func (ch storageChange) toString() string {
@@ -734,6 +1419,55 @@ func (ch storageChange) copy() journalEntry {
 	}
 }
 
+func (ch storageChange) deepCopy() journalEntry {
+	var a common.Address
+	var k common.Hash
+	a.SetBytes(ch.account[:])
+	k.SetBytes(ch.key[:])
+	var p *common.Hash
+	if ch.prevvalue == nil {
+		p = nil
+	} else {
+		p = new(common.Hash)		
+		p.SetBytes(ch.prevvalue[:])
+	}
+	return storageChange{
+		account: &a,
+		key: k,
+		prevvalue: p,
+	}
+}
+
+
+func (ch storageChange) MarshalJSON() ([]byte, error) {
+	var p common.Hash
+	if ch.prevvalue != nil {
+		p.SetBytes(ch.prevvalue[:])
+	}
+	return json.Marshal(&struct{
+		Account common.Address
+		Key common.Hash
+		Prevalue common.Hash
+	}{
+		Account: *(ch.account),
+		Key: ch.key,
+		Prevalue: p,
+	})
+}
+func (ch *storageChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+		Key common.Hash
+		Prevvalue common.Hash
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = &(a.Account)
+	ch.key = a.Key
+	ch.prevvalue = &(a.Prevvalue)
+	return err
+}
+
+
 // transientStorageChange
 func (ch transientStorageChange) toString() string {
 	return ""
@@ -755,6 +1489,45 @@ func (ch transientStorageChange) copy() journalEntry {
 	}
 }
 
+func (ch transientStorageChange) deepCopy() journalEntry {
+	var a common.Address
+	var k common.Hash
+	var p common.Hash
+	a.SetBytes(ch.account[:])
+	k.SetBytes(ch.key[:])
+	p.SetBytes(ch.prevalue[:])
+	return transientStorageChange{
+		account: &a,
+		key: k,
+		prevalue: p,
+	}
+}
+
+func (ch transientStorageChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+		Key common.Hash
+		Prevalue common.Hash
+	}{
+		Account: *(ch.account),
+		Key: ch.key,
+		Prevalue: ch.prevalue,
+	})
+}
+func (ch *transientStorageChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+		Key common.Hash
+		Prevalue common.Hash
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = &(a.Account)
+	ch.key.SetBytes(a.Key[:])
+	ch.prevalue.SetBytes(a.Prevalue[:])
+	return err
+}
+
+
 // refundChange
 func (ch refundChange) toString() string {
 	return ""
@@ -773,6 +1546,30 @@ func (ch refundChange) copy() journalEntry {
 		prev: ch.prev,
 	}
 }
+
+func (ch refundChange) deepCopy() journalEntry {
+	return refundChange{
+		prev: ch.prev,
+	}
+}
+
+func (ch refundChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Prev uint64
+	}{
+		Prev: ch.prev,
+	})
+}
+
+func (ch *refundChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Prev uint64
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.prev = a.Prev
+	return err
+}
+
 
 // addLogChange
 func (ch addLogChange) toString() string {
@@ -799,17 +1596,45 @@ func (ch addLogChange) copy() journalEntry {
 	}
 }
 
+func (ch addLogChange) deepCopy() journalEntry {
+	var h common.Hash
+	h.SetBytes(ch.txhash[:])
+	return addLogChange{
+		txhash: h,
+	}
+}
+
+func (ch addLogChange) MarshalJSON() ([]byte, error) {
+	var h common.Hash
+	h.SetBytes(ch.txhash[:])
+	return json.Marshal(&struct{
+		Txhash common.Hash
+	}{
+		Txhash: h,
+	})	
+}
+
+func (ch *addLogChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Txhash common.Hash
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.txhash.SetBytes(a.Txhash[:])
+	return err
+}
+
+
 // addPreimageChange
 func (ch addPreimageChange) toString() string {
 	return ""
 }
 
-func (ch addPreimageChange) revert(s *StateDB) {
-	delete(s.preimages, ch.hash)
-}
-
 func (ch addPreimageChange) dirtied() *common.Address {
 	return nil
+}
+
+func (ch addPreimageChange) revert(s *StateDB) {
+	delete(s.preimages, ch.hash)
 }
 
 func (ch addPreimageChange) copy() journalEntry {
@@ -817,6 +1642,28 @@ func (ch addPreimageChange) copy() journalEntry {
 		hash: ch.hash,
 	}
 }
+
+func (ch addPreimageChange) deepCopy() journalEntry {
+	var h common.Hash
+	h.SetBytes(ch.hash[:])
+	return addPreimageChange{
+		hash: h,
+	}
+}
+
+func (ch addPreimageChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ch)
+}
+
+func (ch *addPreimageChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Hash common.Hash
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.hash = a.Hash
+	return err
+}
+
 
 // accessListAddAccountChange
 func (ch accessListAddAccountChange) toString() string {
@@ -846,6 +1693,32 @@ func (ch accessListAddAccountChange) copy() journalEntry {
 	}
 }
 
+func (ch accessListAddAccountChange) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.address[:])
+	return accessListAddAccountChange{
+		address: &a,
+	}
+}
+
+func (ch accessListAddAccountChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Address common.Address
+	}{
+		Address: *(ch.address),
+	})
+}
+
+func (ch *accessListAddAccountChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Address common.Address
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.address = &(a.Address)
+	return err
+}
+
+
 // accessListAddSlotChange
 func (ch accessListAddSlotChange) toString() string {
 	return ""
@@ -865,3 +1738,36 @@ func (ch accessListAddSlotChange) copy() journalEntry {
 		slot:    ch.slot,
 	}
 }
+
+func (ch accessListAddSlotChange) deepCopy() journalEntry {
+	var a common.Address
+	var s common.Hash
+	a.SetBytes(ch.address[:])
+	s.SetBytes(ch.slot[:])
+	return accessListAddSlotChange{
+		address: &a,
+		slot: &s,
+	}
+}
+
+func (ch accessListAddSlotChange) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Address common.Address
+		Slot common.Hash
+	}{
+		Address: *(ch.address),
+		Slot: *(ch.slot),
+	})
+}
+
+func (ch *accessListAddSlotChange) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Address common.Address
+		Slot common.Hash
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.address = &(a.Address)
+	ch.slot = &(a.Slot)
+	return err
+}
+
