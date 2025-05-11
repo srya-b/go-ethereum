@@ -247,7 +247,7 @@ func (t *StateTrie) UpdateAccount(address common.Address, acc *types.StateAccoun
 	return nil
 }
 
-func (t *StateTrie) UpdateAccountLogged(address common.Address, acc *types.StateAccount) error {
+func (t *StateTrie) UpdateAccountLogged(address common.Address, acc *types.StateAccount, _ int) error {
 	hk := t.hashKey(address.Bytes())
 	data, err := rlp.EncodeToBytes(acc)
 	if err != nil {
@@ -326,7 +326,11 @@ func (t *StateTrie) GetKeyLogged(shaKey []byte) []byte {
 	if key, ok := t.getSecKeyCache()[string(shaKey)]; ok {
 		return key
 	}
-	return t.db.Preimage(common.BytesToHash(shaKey))
+	if t.preimages == nil {
+		return nil
+	}
+	//return t.db.Preimage(common.BytesToHash(shaKey))
+	return t.preimages.Preimage(common.BytesToHash(shaKey))
 }
 
 // Commit collects all dirty nodes in the trie and replaces them with the
