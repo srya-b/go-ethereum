@@ -750,73 +750,73 @@ func (s *StateDB) deleteStateObject(addr common.Address) {
 	}
 }
 
-func (s *StateDB) getStateObject2(addr common.Address) *stateObject {
-	// Prefer live objects if any is available
-	if obj := s.stateObjects[addr]; obj != nil {
-		//log.Info("Live stateobject", "addr", addr)
-		s.journal.append(getStateObjectEntry{account: &addr})
-		return obj
-	}
-	// Short circuit if the account is already destructed in this block.
-	if _, ok := s.stateObjectsDestruct[addr]; ok {
-		// let it return here because a destruted object is always known and instantly checked
-		// eventually the advice or whatever can inform that something is destroyed, and we don't
-		// want to cache anything explored here
-		s.journal.append(getStateObjectEntry{account: &addr})
-		return nil
-	}
-	// If no live objects are available, attempt to use snapshots
-	var data *types.StateAccount
-	if s.snap != nil {
-		//log.Info("Searching in snapshot", "addr", addr)
-		start := time.Now()
-		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
-		s.SnapshotAccountReads += time.Since(start)
-
-		if err == nil {
-			if acc == nil {
-				return nil
-			}
-			data = &types.StateAccount{
-				Nonce:    acc.Nonce,
-				Balance:  acc.Balance,
-				CodeHash: acc.CodeHash,
-				Root:     common.BytesToHash(acc.Root),
-			}
-			if len(data.CodeHash) == 0 {
-				data.CodeHash = types.EmptyCodeHash.Bytes()
-			}
-			if data.Root == (common.Hash{}) {
-				data.Root = types.EmptyRootHash
-			}
-		}
-	}
-	// If snapshot unavailable or reading from it failed, load from the database
-	if data == nil {
-		//log.Info("Not in snapshot", "addr", addr)
-		start := time.Now()
-		var err error
-		data, err = s.trie.GetAccount(addr)
-		s.AccountReads += time.Since(start)
-
-		if err != nil {
-			s.setError(fmt.Errorf("getDeleteStateObject (%x) error: %w", addr.Bytes(), err))
-			return nil
-		}
-		if data == nil {
-			//log.Info("data == nil")
-			return nil
-		}
-	}
-	// Insert into the live set
-	//log.Info("logging and creating a new object from data", "addr", addr)
-	//log.Info("appending to journal")
-	s.journal.append(getStateObjectEntry{account: &addr})
-	//log.Info("done appending")
-	obj := newObject(s, addr, data)
-	s.setStateObject(obj)
-	return obj
-}
+//func (s *StateDB) getStateObject2(addr common.Address) *stateObject {
+//	// Prefer live objects if any is available
+//	if obj := s.stateObjects[addr]; obj != nil {
+//		//log.Info("Live stateobject", "addr", addr)
+//		s.journal.append(getStateObjectEntry{account: &addr})
+//		return obj
+//	}
+//	// Short circuit if the account is already destructed in this block.
+//	if _, ok := s.stateObjectsDestruct[addr]; ok {
+//		// let it return here because a destruted object is always known and instantly checked
+//		// eventually the advice or whatever can inform that something is destroyed, and we don't
+//		// want to cache anything explored here
+//		s.journal.append(getStateObjectEntry{account: &addr})
+//		return nil
+//	}
+//	// If no live objects are available, attempt to use snapshots
+//	var data *types.StateAccount
+//	if s.snap != nil {
+//		//log.Info("Searching in snapshot", "addr", addr)
+//		start := time.Now()
+//		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
+//		s.SnapshotAccountReads += time.Since(start)
+//
+//		if err == nil {
+//			if acc == nil {
+//				return nil
+//			}
+//			data = &types.StateAccount{
+//				Nonce:    acc.Nonce,
+//				Balance:  acc.Balance,
+//				CodeHash: acc.CodeHash,
+//				Root:     common.BytesToHash(acc.Root),
+//			}
+//			if len(data.CodeHash) == 0 {
+//				data.CodeHash = types.EmptyCodeHash.Bytes()
+//			}
+//			if data.Root == (common.Hash{}) {
+//				data.Root = types.EmptyRootHash
+//			}
+//		}
+//	}
+//	// If snapshot unavailable or reading from it failed, load from the database
+//	if data == nil {
+//		//log.Info("Not in snapshot", "addr", addr)
+//		start := time.Now()
+//		var err error
+//		data, err = s.trie.GetAccount(addr)
+//		s.AccountReads += time.Since(start)
+//
+//		if err != nil {
+//			s.setError(fmt.Errorf("getDeleteStateObject (%x) error: %w", addr.Bytes(), err))
+//			return nil
+//		}
+//		if data == nil {
+//			//log.Info("data == nil")
+//			return nil
+//		}
+//	}
+//	// Insert into the live set
+//	//log.Info("logging and creating a new object from data", "addr", addr)
+//	//log.Info("appending to journal")
+//	s.journal.append(getStateObjectEntry{account: &addr})
+//	//log.Info("done appending")
+//	obj := newObject(s, addr, data)
+//	s.setStateObject(obj)
+//	return obj
+//}
 
 // getStateObject retrieves a state object given by the address, returning nil if
 // the object is not found or was deleted in this execution context.
@@ -1081,7 +1081,7 @@ func (s *StateDB) findStorageChangeInJournal(addr common.Address, key common.Has
 	for _, lentry := range s.journal.logEntries {
 		switch logEntry := (lentry.Entry).(type) {
 		case storageChange:
-			a := *(logEntry.account)
+			a := logEntry.account
 			k := logEntry.key
 			if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
 				obj, exists := s.stateObjects[a]
@@ -1105,7 +1105,7 @@ func (s *StateDB) findGetSets(addr common.Address, key common.Hash) {
 				log.Info("Get target.", "idx", idx, "addr", a, "key", k, "value", *logEntry.value)
 			}
 		case storageChange:
-			a := *(logEntry.account)
+			a := logEntry.account
 			k := logEntry.key
 			if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
 				obj, exists := s.stateObjects[a]
@@ -1128,7 +1128,7 @@ func (s *StateDB) findGetCreates(addr common.Address) {
 				log.Info("Get obj target", "idx", idx, "addr", a)
 			}
 		case createObjectChange:
-			a := *(logEntry.account)
+			a := logEntry.account
 			if addr.Cmp(a) == 0 {
 				_, exists := s.stateObjects[a]
 				if !exists {
@@ -1197,7 +1197,7 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 			switch logEntry := (lentry.Entry).(type) {
 			case createObjectChange:
 				// this is a new stateObject so log the hash the value node representation of the state
-				addr = logEntry.account
+				addr = &(logEntry.account)
 				log.Info("create object", "addr", *addr)
 				//if isArbosAddress(*addr) {
 				//	continue
@@ -1370,10 +1370,13 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 				// we only care about NEW state created so that we can log that we've seen it		
 				//prev := *(logEntry.prevvalue)
 				//trimmedPrev := common.TrimLeftZeroes(prev[:])
-				if logEntry.prevvalue == nil {
+				var testVal common.Hash
+				testVal.SetBytes(nil)
+				if logEntry.prevvalue.Cmp(testVal) == 0 {
+				//if logEntry.prevvalue == nil {
 				//if len(trimmedPrev) == 0 {
 					// log this as a change
-					addr = logEntry.account
+					addr = &(logEntry.account)
 					key = &(logEntry.key)
 					keykey = KeyKey{*addr, *key}
 					_, ok := s.accountsSeen[*addr]

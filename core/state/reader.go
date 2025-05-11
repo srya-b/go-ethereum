@@ -212,11 +212,11 @@ func newTrieReader(root common.Hash, db *triedb.Database, cache *utils.PointCach
 		tr  Trie
 		err error
 	)
-	if !db.IsVerkle() {
-		tr, err = trie.NewStateTrie(trie.StateTrieID(root), db)
-	} else {
-		tr, err = trie.NewVerkleTrie(root, db, cache)
-	}
+	//if !db.IsVerkle() {
+	tr, err = trie.NewStateTrie(trie.StateTrieID(root), db)
+	//} else {
+	//	tr, err = trie.NewVerkleTrie(root, db, cache)
+	//}
 	if err != nil {
 		return nil, err
 	}

@@ -228,16 +228,18 @@ func ApplyTransactionWithResultFilter(evm *vm.EVM, gp *GasPool, statedb *state.S
 	return ApplyTransactionWithEVM(msg, gp, statedb, header.Number, header.Hash(), tx, usedGas, evm, resultFilter)
 }
 
-func ApplyTransactionWithResultFilterUnique(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config, runMode MessageRunMode, resultFilter func(*ExecutionResult) error) (*types.Receipt, *ExecutionResult, [][]common.Hash, []state.OP, int, error) {
-	msg, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee, runMode)
+//func ApplyTransactionWithResultFilterUnique(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config, runMode MessageRunMode, resultFilter func(*ExecutionResult) error) (*types.Receipt, *ExecutionResult, [][]common.Hash, []state.OP, int, error) {
+
+func ApplyTransactionWithResultFilterUnique(evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, runMode MessageRunMode, resultFilter func(*ExecutionResult) error) (*types.Receipt, *ExecutionResult, [][]common.Hash, []state.OP, int, error) {
+	msg, err := TransactionToMessage(tx, types.MakeSigner(evm.ChainConfig(), header.Number, header.Time, evm.Context.ArbOSVersion), header.BaseFee, runMode)
 	if err != nil {
 		return nil, nil, nil, nil, 0, err
 	}
 	// Create a new context to be used in the EVM environment
-	blockContext := NewEVMBlockContext(header, bc, author)
-	txContext := NewEVMTxContext(msg)
-	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
-	rc, er, err2 := ApplyTransactionWithEVM(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv, resultFilter)
+	//blockContext := NewEVMBlockContext(header, bc, author)
+	//txContext := NewEVMTxContext(msg)
+	//vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
+	rc, er, err2 := ApplyTransactionWithEVM(msg, gp, statedb, header.Number, header.Hash(), tx, usedGas, evm, resultFilter)
     log.Info("Applyresultfilter", "ops", statedb.TotalOps, "p", statedb.PathsTaken)
     pathsTaken := statedb.PathsTaken()
     opsCalled := statedb.OpsCalled()

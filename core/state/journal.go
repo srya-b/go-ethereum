@@ -79,7 +79,7 @@ var storageChangeS string = "storageChange"
 var codeChangeS string = "codeChange"
 var refundChangeS string = "refundChange"
 var addLogChangeS string = "addLogChange"
-var addPreimageChangeS string = "addPreimageChange"
+//var addPreimageChangeS string = "addPreimageChange"
 var touchChangeS string = "touchChange"
 var accessListAddAccountChangeS string = "accessListAddAccountChange"
 var accessListAddSlotChangeS string = "accessListAddSlotChange"
@@ -201,17 +201,17 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) {
 			panic(err)
 		}
 		return entry.MarshalJSON()
-	case addPreimageChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: addPreimageChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
+	//case addPreimageChange:
+	//	d, err := entry.MarshalJSON()
+	//	if err == nil {
+	//		return json.Marshal(&generic{
+	//			Type: addPreimageChangeS,
+	//			Data: d,
+	//		})
+	//	} else {
+	//		panic(err)
+	//	}
+	//	return entry.MarshalJSON()
 	case touchChange:
 		d, err := entry.MarshalJSON()
 		if err == nil {
@@ -384,12 +384,12 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			panic(err)
 		}
 		l.Entry = res
-	case addPreimageChangeS:
-		var res addPreimageChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
+	//case addPreimageChangeS:
+	//	var res addPreimageChange
+	//	if err := res.UnmarshalJSON(out.Data); err != nil {
+	//		panic(err)
+	//	}
+	//	l.Entry = res
 	case touchChangeS:
 		var res touchChange
 		if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -486,7 +486,7 @@ type journal struct {
 
 	validRevisions []revision
 	nextRevisionId int
-	logEntries []logJournalEntry
+	logEntries []LogJournalEntry
 	logDirties map[common.Address]int
 	txLogEntries [][]LogJournalEntry
 	logOffset int
@@ -911,6 +911,11 @@ func ak(addr *common.Address, key *common.Hash) string {
 func akv(addr *common.Address, key *common.Hash, val *common.Hash) string {
 	return ap(addr) + ", " + kp(key) + ", " + vp(val)
 }
+
+func akvp(addr *common.Address, key *common.Hash, prev *common.Hash, val *common.Hash) string {
+	return ap(addr) + ", " + kp(key) + ", " + vp(prev) + ", " + vp(prev)
+}
+
 	
 
 // getStateObjectEntry
@@ -1049,7 +1054,7 @@ func (ch *getStorageEntry ) UnmarshalJSON(b []byte) error {
 
 // createObjectChange
 func (ch createObjectChange) toString() string {
-	return "createObjectChange(" + ap(ch.account) + ")"
+	return "createObjectChange(" + ap(&(ch.account)) + ")"
 }
 
 func (ch createObjectChange) revert(s *StateDB) {
@@ -1070,7 +1075,7 @@ func (ch createObjectChange) deepCopy() journalEntry {
 	var a common.Address
 	a.SetBytes(ch.account[:])
 	return createObjectChange{
-		account: &a,
+		account: a,
 	}
 }
 
@@ -1078,7 +1083,7 @@ func (ch createObjectChange) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct{
 		Account common.Address
 	}{
-		Account: *(ch.account),
+		Account: ch.account,
 	})
 }
 
@@ -1087,7 +1092,7 @@ func (ch *createObjectChange) UnmarshalJSON(b []byte) error {
 		Account common.Address
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.account = &(a.Account)
+	ch.account = a.Account
 	return err
 }
 
@@ -1139,7 +1144,7 @@ func (ch *createContractChange) UnmarshalJSON(b []byte) error {
 
 // selfDestructChange
 func (ch selfDestructChange) toString() string {
-	return "selfDestruct(" + ap(ch.account) + ", prevbalance=" + ch.prevbalance.String() + ")" 
+	return "selfDestruct(" + ap(&(ch.account)) + ")" 
 }
 
 func (ch selfDestructChange) revert(s *StateDB) {
@@ -1162,37 +1167,37 @@ func (ch selfDestructChange) copy() journalEntry {
 func (ch selfDestructChange) deepCopy() journalEntry {
 	var a common.Address
 	a.SetBytes(ch.account[:])
-	pb := ch.prevbalance.Clone()
+	//pb := ch.prevbalance.Clone()
 	return selfDestructChange{
-		account: &a,
-		prev: ch.prev,
-		prevbalance: pb,
+		account: a,
+		//prev: ch.prev,
+		//prevbalance: pb,
 	}
 }
 
 func (ch selfDestructChange) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct{
 		Account common.Address
-		Prev bool
-		PrevBalance uint256.Int
+		//Prev bool
+		//PrevBalance uint256.Int
 	}{
-		Account: *(ch.account),
-		Prev: ch.prev,
-		PrevBalance: *(ch.prevbalance),
+		Account: ch.account,
+		//Prev: ch.prev,
+		//PrevBalance: *(ch.prevbalance),
 	})
 }
 
 func (ch *selfDestructChange) UnmarshalJSON(b []byte) error {
 	a := &struct{
 		Account common.Address
-		Prev bool
-		PrevBalance uint256.Int
+		//Prev bool
+		//PrevBalance uint256.Int
 	}{}
 
 	err := json.Unmarshal(b, a)
-	ch.account = &(a.Account)
-	ch.prev = a.Prev
-	ch.prevbalance = &(a.PrevBalance)
+	ch.account = a.Account
+	//ch.prev = a.Prev
+	//ch.prevbalance = &(a.PrevBalance)
 	return err
 }
 
@@ -1202,7 +1207,7 @@ var ripemd = common.HexToAddress("0000000000000000000000000000000000000003")
 
 // touchChange
 func (ch touchChange) toString() string {
-	return "touchChange(" + ap(ch.account) + ")"
+	return "touchChange(" + ap(&(ch.account)) + ")"
 }
 
 func (ch touchChange) revert(s *StateDB) {
@@ -1222,7 +1227,7 @@ func (ch touchChange) deepCopy() journalEntry {
 	var a common.Address
 	a.SetBytes(ch.account[:])
 	return touchChange{
-		account: &a,
+		account: a,
 	}
 }
 
@@ -1230,7 +1235,7 @@ func (ch touchChange) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct{
 		Account common.Address
 	}{
-		Account: *(ch.account),
+		Account: ch.account,
 	})
 }
 func (ch *touchChange) UnmarshalJSON(b []byte) error {
@@ -1238,7 +1243,7 @@ func (ch *touchChange) UnmarshalJSON(b []byte) error {
 		Account common.Address
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.account = &(a.Account)
+	ch.account = a.Account
 	return err
 }
 
@@ -1246,7 +1251,7 @@ func (ch *touchChange) UnmarshalJSON(b []byte) error {
 
 // balanceChange
 func (ch balanceChange) toString() string {
-	return "balanceChange(" + ap(ch.account) + ", prev=" + ch.prev.String() + ")"
+	return "balanceChange(" + ap(&(ch.account)) + ", prev=" + ch.prev.String() + ")"
 }
 
 func (ch balanceChange) revert(s *StateDB) {
@@ -1268,7 +1273,7 @@ func (ch balanceChange) deepCopy() journalEntry {
 	var a common.Address
 	a.SetBytes(ch.account[:])
 	return balanceChange{
-		account: &a,
+		account: a,
 		prev: ch.prev.Clone(),
 	}
 }
@@ -1278,7 +1283,7 @@ func (ch balanceChange) MarshalJSON() ([]byte, error) {
 		Account common.Address
 		Prev uint256.Int
 	}{
-		Account: *(ch.account),
+		Account: ch.account,
 		Prev: *(ch.prev),
 	})
 }
@@ -1288,7 +1293,7 @@ func (ch *balanceChange) UnmarshalJSON(b []byte) error {
 		Prev uint256.Int
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.account = &(a.Account)
+	ch.account = a.Account
 	ch.prev = &(a.Prev)
 	return err
 }
@@ -1296,7 +1301,7 @@ func (ch *balanceChange) UnmarshalJSON(b []byte) error {
 
 // nonceChange
 func (ch nonceChange) toString() string {
-	return "nonceChange(" + ap(ch.account) + fmt.Sprintf(", prev=%v)",ch.prev)
+	return "nonceChange(" + ap(&(ch.account)) + fmt.Sprintf(", prev=%v)",ch.prev)
 } 
 
 func (ch nonceChange) revert(s *StateDB) {
@@ -1318,7 +1323,7 @@ func (ch nonceChange) deepCopy() journalEntry {
 	var a common.Address
 	a.SetBytes(ch.account[:])
 	return nonceChange{
-		account: &a,
+		account: a,
 		prev: ch.prev,
 	}
 }
@@ -1328,7 +1333,7 @@ func (ch nonceChange) MarshalJSON() ([]byte, error) {
 		Account common.Address
 		Prev uint64
 	}{
-		Account: *(ch.account),
+		Account: ch.account,
 		Prev: ch.prev,
 	})
 }
@@ -1338,7 +1343,7 @@ func (ch *nonceChange) UnmarshalJSON(b []byte) error {
 		Prev uint64
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.account = &(a.Account)
+	ch.account = a.Account
 	ch.prev = a.Prev
 	return err
 }
@@ -1368,9 +1373,9 @@ func (ch codeChange) deepCopy() journalEntry {
 	var a common.Address
 	a.SetBytes(ch.account[:])
 	return codeChange{
-		account: &a,
-		prevcode: bytes.Clone(ch.prevcode),
-		prevhash: bytes.Clone(ch.prevhash),
+		account: a,
+		prevCode: bytes.Clone(ch.prevCode),
+		//prevhash: bytes.Clone(ch.prevhash),
 	}
 }
 
@@ -1378,29 +1383,30 @@ func (ch codeChange) deepCopy() journalEntry {
 func (ch codeChange) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct{
 		Account common.Address
-		Prevhash common.Hash
+		PrevCode []byte
 	}{
-		Account: *(ch.account),
-		Prevhash: common.BytesToHash(common.CopyBytes(ch.prevhash)),
+		Account: ch.account,
+		PrevCode: bytes.Clone(ch.prevCode),
+		//Prevhash: common.BytesToHash(common.CopyBytes(ch.prevhash)),
 	})
 		
 }
 func (ch *codeChange) UnmarshalJSON(b []byte) error {
 	a := &struct{
 		Account common.Address
-		Prevhash common.Hash
+		PrevCode []byte
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.account = &(a.Account)
-	ch.prevhash = common.CopyBytes(a.Prevhash[:])
-	ch.prevcode = nil
+	ch.account = a.Account
+	//ch.prevhash = common.CopyBytes(a.Prevhash[:])
+	ch.prevCode = bytes.Clone(a.PrevCode)
 	return err
 }
 
 
 // storageCahnge
 func (ch storageChange) toString() string {
-	return "storageChange(" + akv(ch.account, &ch.key, ch.prevvalue) + ")"
+	return "storageChange(" + akvp(&(ch.account), &(ch.key), &(ch.prevvalue), &(ch.origvalue)) + ")"
 }
 
 func (ch storageChange) revert(s *StateDB) {
@@ -1416,42 +1422,49 @@ func (ch storageChange) copy() journalEntry {
 		account:   ch.account,
 		key:       ch.key,
 		prevvalue: ch.prevvalue,
+		//origvalue: ch.origvalue,
 	}
 }
 
 func (ch storageChange) deepCopy() journalEntry {
 	var a common.Address
 	var k common.Hash
+	var p common.Hash
+	var o common.Hash
 	a.SetBytes(ch.account[:])
 	k.SetBytes(ch.key[:])
-	var p *common.Hash
-	if ch.prevvalue == nil {
-		p = nil
-	} else {
-		p = new(common.Hash)		
-		p.SetBytes(ch.prevvalue[:])
-	}
+	p.SetBytes(ch.prevvalue[:])
+	o.SetBytes(ch.origvalue[:])
+	//if ch.prevvalue == nil {
+	//	p = p.SetBytes(nil)
+	//} else {
+	//	p = new(common.Hash)		
+	//	p.SetBytes(ch.prevvalue[:])
+	//}
 	return storageChange{
-		account: &a,
+		account: a,
 		key: k,
 		prevvalue: p,
+		origvalue: o,
 	}
 }
 
 
 func (ch storageChange) MarshalJSON() ([]byte, error) {
-	var p common.Hash
-	if ch.prevvalue != nil {
-		p.SetBytes(ch.prevvalue[:])
-	}
+	//var p common.Hash
+	//if ch.prevvalue != nil {
+	//	p.SetBytes(ch.prevvalue[:])
+	//}
 	return json.Marshal(&struct{
 		Account common.Address
 		Key common.Hash
 		Prevalue common.Hash
+		Origvalue common.Hash
 	}{
-		Account: *(ch.account),
+		Account: ch.account,
 		Key: ch.key,
-		Prevalue: p,
+		Prevalue: ch.prevvalue,
+		Origvalue: ch.origvalue,
 	})
 }
 func (ch *storageChange) UnmarshalJSON(b []byte) error {
@@ -1459,11 +1472,13 @@ func (ch *storageChange) UnmarshalJSON(b []byte) error {
 		Account common.Address
 		Key common.Hash
 		Prevvalue common.Hash
+		Origvalue common.Hash
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.account = &(a.Account)
+	ch.account = a.Account
 	ch.key = a.Key
-	ch.prevvalue = &(a.Prevvalue)
+	ch.prevvalue = a.Prevvalue
+	ch.origvalue = a.Origvalue
 	return err
 }
 
@@ -1497,7 +1512,7 @@ func (ch transientStorageChange) deepCopy() journalEntry {
 	k.SetBytes(ch.key[:])
 	p.SetBytes(ch.prevalue[:])
 	return transientStorageChange{
-		account: &a,
+		account: a,
 		key: k,
 		prevalue: p,
 	}
@@ -1509,7 +1524,7 @@ func (ch transientStorageChange) MarshalJSON() ([]byte, error) {
 		Key common.Hash
 		Prevalue common.Hash
 	}{
-		Account: *(ch.account),
+		Account: ch.account,
 		Key: ch.key,
 		Prevalue: ch.prevalue,
 	})
@@ -1521,7 +1536,7 @@ func (ch *transientStorageChange) UnmarshalJSON(b []byte) error {
 		Prevalue common.Hash
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.account = &(a.Account)
+	ch.account = a.Account
 	ch.key.SetBytes(a.Key[:])
 	ch.prevalue.SetBytes(a.Prevalue[:])
 	return err
@@ -1625,44 +1640,44 @@ func (ch *addLogChange) UnmarshalJSON(b []byte) error {
 
 
 // addPreimageChange
-func (ch addPreimageChange) toString() string {
-	return ""
-}
-
-func (ch addPreimageChange) dirtied() *common.Address {
-	return nil
-}
-
-func (ch addPreimageChange) revert(s *StateDB) {
-	delete(s.preimages, ch.hash)
-}
-
-func (ch addPreimageChange) copy() journalEntry {
-	return addPreimageChange{
-		hash: ch.hash,
-	}
-}
-
-func (ch addPreimageChange) deepCopy() journalEntry {
-	var h common.Hash
-	h.SetBytes(ch.hash[:])
-	return addPreimageChange{
-		hash: h,
-	}
-}
-
-func (ch addPreimageChange) MarshalJSON() ([]byte, error) {
-	return json.Marshal(ch)
-}
-
-func (ch *addPreimageChange) UnmarshalJSON(b []byte) error {
-	a := &struct{
-		Hash common.Hash
-	}{}
-	err := json.Unmarshal(b, a)
-	ch.hash = a.Hash
-	return err
-}
+//func (ch addPreimageChange) toString() string {
+//	return ""
+//}
+//
+//func (ch addPreimageChange) dirtied() *common.Address {
+//	return nil
+//}
+//
+//func (ch addPreimageChange) revert(s *StateDB) {
+//	delete(s.preimages, ch.hash)
+//}
+//
+//func (ch addPreimageChange) copy() journalEntry {
+//	return addPreimageChange{
+//		hash: ch.hash,
+//	}
+//}
+//
+//func (ch addPreimageChange) deepCopy() journalEntry {
+//	var h common.Hash
+//	h.SetBytes(ch.hash[:])
+//	return addPreimageChange{
+//		hash: h,
+//	}
+//}
+//
+//func (ch addPreimageChange) MarshalJSON() ([]byte, error) {
+//	return json.Marshal(ch)
+//}
+//
+//func (ch *addPreimageChange) UnmarshalJSON(b []byte) error {
+//	a := &struct{
+//		Hash common.Hash
+//	}{}
+//	err := json.Unmarshal(b, a)
+//	ch.hash = a.Hash
+//	return err
+//}
 
 
 // accessListAddAccountChange
@@ -1697,7 +1712,7 @@ func (ch accessListAddAccountChange) deepCopy() journalEntry {
 	var a common.Address
 	a.SetBytes(ch.address[:])
 	return accessListAddAccountChange{
-		address: &a,
+		address: a,
 	}
 }
 
@@ -1705,7 +1720,7 @@ func (ch accessListAddAccountChange) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct{
 		Address common.Address
 	}{
-		Address: *(ch.address),
+		Address: ch.address,
 	})
 }
 
@@ -1714,7 +1729,7 @@ func (ch *accessListAddAccountChange) UnmarshalJSON(b []byte) error {
 		Address common.Address
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.address = &(a.Address)
+	ch.address = a.Address
 	return err
 }
 
@@ -1745,8 +1760,8 @@ func (ch accessListAddSlotChange) deepCopy() journalEntry {
 	a.SetBytes(ch.address[:])
 	s.SetBytes(ch.slot[:])
 	return accessListAddSlotChange{
-		address: &a,
-		slot: &s,
+		address: a,
+		slot: s,
 	}
 }
 
@@ -1755,8 +1770,8 @@ func (ch accessListAddSlotChange) MarshalJSON() ([]byte, error) {
 		Address common.Address
 		Slot common.Hash
 	}{
-		Address: *(ch.address),
-		Slot: *(ch.slot),
+		Address: ch.address,
+		Slot: ch.slot,
 	})
 }
 
@@ -1766,8 +1781,8 @@ func (ch *accessListAddSlotChange) UnmarshalJSON(b []byte) error {
 		Slot common.Hash
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.address = &(a.Address)
-	ch.slot = &(a.Slot)
+	ch.address = a.Address
+	ch.slot = a.Slot
 	return err
 }
 

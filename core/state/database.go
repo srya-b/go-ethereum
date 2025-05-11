@@ -28,7 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/ethereum/go-ethereum/trie/trienode"
-	_"github.com/ethereum/go-ethereum/trie/utils"
+	"github.com/ethereum/go-ethereum/trie/utils"
 	"github.com/ethereum/go-ethereum/triedb"
 )
 
@@ -136,9 +136,9 @@ type Trie interface {
 	// UpdateAccount abstracts an account write to the trie. It encodes the
 	// provided account object with associated algorithm and then updates it
 	// in the trie with provided address.
-	UpdateAccount(address common.Address, account *types.StateAccount) error
+	UpdateAccount(address common.Address, account *types.StateAccount, codeLen int) error
 
-	UpdateAccountLogged(address common.Address, account *types.StateAccount) error
+	UpdateAccountLogged(address common.Address, account *types.StateAccount, codeLen int) error
 
 	// UpdateStorage associates key with value in the trie. If value has length zero,
 	// any existing value is deleted from the trie. The value bytes must not be modified
@@ -173,7 +173,12 @@ type Trie interface {
 	// The returned nodeset can be nil if the trie is clean(nothing to commit).
 	// Once the trie is committed, it's not usable anymore. A new trie must
 	// be created with new root and updated trie database for following usage
-	Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error)
+	//Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet, error)
+	Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet)
+
+	// Witness returns a set containing all trie nodes that have been accessed.
+	// The returned map could be nil if the witness is empty.
+	Witness() map[string]struct{}
 
 	// NodeIterator returns an iterator that returns nodes of the trie. Iteration
 	// starts at the key after the given start key. And error will be returned
@@ -192,6 +197,9 @@ type Trie interface {
 
 	RootString() string
 	RootBytes() (common.Hash, []byte)
+
+	// IsVerkle returns true if the trie is verkle-tree based
+	IsVerkle() bool
 }
 
 type OpenTrie interface {
@@ -369,7 +377,7 @@ func (db *CachingDB) OpenTrie(root common.Hash) (Trie, error) {
 	return tr, nil
 }
 
-func (db *cachingDB) OpenOpenTrie(root common.Hash) (OpenTrie, error) {
+func (db *CachingDB) OpenOpenTrie(root common.Hash) (OpenTrie, error) {
 	//if db.triedb.IsVerkle() {
 	//	return trie.NewVerkleTrie(root, db.triedb, utils.NewPointCache(commitmentCacheItems))
 	//}
