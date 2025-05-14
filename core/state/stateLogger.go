@@ -280,7 +280,7 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 			//_, ok = s.keysSeen[keykey]
 			_, ok = keys[keykey]
 			if !ok {
-				log.Info("Getstorage", "addr", *addr, "k", *key)
+				//log.Info("Getstorage", "addr", *addr, "k", *key)
 				// get the stateObject first it should be in stateObjects
 				obj, exist := s.stateObjects[*addr]
 				if !exist {
@@ -295,7 +295,7 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 				} else {
 					if len(pathHashes) > 0 && len(rawNodesOnPath) > 0 {
 						//totalKeysInTrie++
-						s.keysInTrie[keykey] = true
+						s.keysInTrie[keykey] = trieVal
 					}
 				}
 				if len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
@@ -393,12 +393,12 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 				//s.nodesForKey[v] = rawNode
 				keyNodes[v] = rawNode
 			}
-			if logEntry.newvalue.Cmp(testVal) == 0 {
-				_, ok := s.keysInTrie[keykey]
-				if ok {
-					delete(s.keysInTrie, keykey)
-				}
-			}	
+			//if logEntry.newvalue.Cmp(testVal) == 0 {
+			//	_, ok := s.keysInTrie[keykey]
+			//	if ok {
+			//		delete(s.keysInTrie, keykey)
+			//	}
+			//}	
 		default:
 		}
 	}
@@ -458,27 +458,6 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 	log.Info("Total accounts in trie", "n", len(s.accountsInTrie))
 	log.Info("Total keys in tries", "n", len(s.keysInTrie))
 
-	// create a trie from this data
-	rootHash, rootRaw := s.trie.RootBytes()
-	if rootRaw != nil {
-		rn, err := trie.PublicDecodeNode(nil, rootRaw)
-		if err != nil {
-			log.Error("Couldn't decode root from raw.", "hash", rootHash, "raw", rootRaw)
-			panic("Failed to decode root")
-		}
-		// merge the hashes 
-		testMap := make(map[common.Hash][]byte)
-		//for hn, raw := range s.nodesForAccount {
-		for hn, raw := range accountNodes {
-			testMap[hn] = raw
-		}
-		//for hn, raw := range s.nodesForKey {
-		for hn, raw := range keyNodes {
-			testMap[hn] = raw
-		}
-		count := trie.TrieFromNodeCount(rn, testMap)
-		log.Info("Crated hashes", "len", count)
-	}
 	return accounts, accountNodes, keys, keyNodes
 }
 
