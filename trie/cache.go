@@ -550,7 +550,7 @@ func getStorageTrie(n valueNode, preimages map[common.Hash][]byte) (node, *types
 		return nilValueNode, acc, false
 	}
 	
-	log.Info("Found a state account:", "acc", acc)
+	log.Info("Found a state account:", "acc", acc.Root)
 
 	storageTrieRootRaw, exists := preimages[acc.Root]
 	if exists {
@@ -559,6 +559,11 @@ func getStorageTrie(n valueNode, preimages map[common.Hash][]byte) (node, *types
 		if err != nil { panic(err) }
 		return storageTrieRoot, acc, true
 	} else {
+		if acc.Root.Cmp(types.EmptyRootHash) != 0 {
+			log.Info("storage root doesn't exist")
+		} else {
+			log.Info("Account has empty root hash")
+		}
 		return nilValueNode, acc, false
 	}
 }
@@ -2721,7 +2726,7 @@ func TrieFromNode(n node, preimages map[common.Hash][]byte) ([]common.Hash) {
 		//return []common.Hash{}
 		storageRoot, acc, exists := getStorageTrie(n, preimages)
 		if len(n[:]) > 32 && !exists {
-			log.Info("large valueNode doesn't exist", "v", n)
+			log.Info(" large valueNode doesn't exist", "v", n)
 		}
 		if exists {
 			log.Info("Was able to get storage trie")
@@ -2785,7 +2790,7 @@ func TrieFromNode(n node, preimages map[common.Hash][]byte) ([]common.Hash) {
 func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 	switch n := (n).(type) {
 	case valueNode: 
-		//log.Info("valueNode reached", "valueNode", n)
+		log.Info("valueNode reached", "valueNode", n)
 		//return []common.Hash{}
 		storageRoot, _, exists := getStorageTrie(n, preimages)
 		if len(n[:]) > 32 && !exists {
@@ -2803,7 +2808,7 @@ func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 	case *shortNode:
 		// shortNodes are extensions or valueNodes
 		// they are usually stored as hashNodes so don't save anything here
-		//log.Info("shortNode expansion", "short node", HashNode(n))
+		log.Info("shortNode expansion", "short node", HashNode( &shortNode{ Key: hexToCompact(n.Key), Val: n.Val} ))
 		switch (n.Val).(type) {
 		case *fullNode: panic("child of short node is a full node")
 		default:
