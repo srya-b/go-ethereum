@@ -550,7 +550,7 @@ func getStorageTrie(n valueNode, preimages map[common.Hash][]byte) (node, *types
 		return nilValueNode, acc, false
 	}
 	
-	log.Info("Found a state account:", "acc", acc.Root)
+	//log.Info("Found a state account:", "acc", acc.Root)
 
 	storageTrieRootRaw, exists := preimages[acc.Root]
 	if exists {
@@ -559,11 +559,11 @@ func getStorageTrie(n valueNode, preimages map[common.Hash][]byte) (node, *types
 		if err != nil { panic(err) }
 		return storageTrieRoot, acc, true
 	} else {
-		if acc.Root.Cmp(types.EmptyRootHash) != 0 {
-			log.Info("storage root doesn't exist")
-		} else {
-			log.Info("Account has empty root hash")
-		}
+		//if acc.Root.Cmp(types.EmptyRootHash) != 0 {
+		//	log.Info("storage root doesn't exist")
+		//} else {
+		//	log.Info("Account has empty root hash")
+		//}
 		return nilValueNode, acc, false
 	}
 }
@@ -2855,6 +2855,89 @@ func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 			//log.Info("Expanding hashNode in creating subtrie.", "hash", realHash)
 			//finalList = append([]common.Hash{realHash}, TrieFromNode(actualNode,preimages)...)
 			final = final + TrieFromNodeCount(actualNode, preimages)
+		}
+		//return finalList
+		return final
+	default:
+		panic(fmt.Sprintf("%T: invalid node: %v", n, n))
+	}
+}
+
+func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte) int {
+	switch n := (n).(type) {
+	case valueNode: 
+		if len(key) < 32 {
+			log.Error("Key is not hash length", "l", len(key), "key", fmt.Sprintf("%x", key))
+			panic("aah")
+		}
+		//log.Info("valueNode reached", "valueNode", n, "key", common.BytesToHash(key))
+		//return []common.Hash{}
+		storageRoot, _, exists := getStorageTrie(n, preimages)
+		if len(n[:]) > 32 && !exists {
+			log.Info("large valueNode doesn't exist", "v", n)
+		}
+		if exists {
+			//log.Info("Was able to get storage trie")
+			// add the root to the map and recurse
+			//return append([]common.Hash{acc.Root}, TrieFromNode(storageRoot, preimages)...)
+			return 1 + TrieFromNodeCountKeys(storageRoot, preimages, []byte{})
+		} else {
+			//log.Info("Account", "acct", acc)
+			return 1
+		}
+	case *shortNode:
+		// shortNodes are extensions or valueNodes
+		// they are usually stored as hashNodes so don't save anything here
+		//log.Info("shortNode expansion", "short node", HashNode( &shortNode{ Key: n.Key, Val: n.Val} ))
+		switch (n.Val).(type) {
+		case *fullNode: panic("child of short node is a full node")
+		//case *shortNode: log.Info("child: shortNode")
+		//case valueNode: log.Info("child: valueNode")
+		//case hashNode: log.Info("child: hashNode")
+		default:
+		}
+		return TrieFromNodeCountKeys(n.Val, preimages, append(key, (n.Key)...))
+	case *fullNode:
+		// exension nodes
+		//log.Info("fullNode expansion", "full node", HashNode(n), "n", n)
+		ok := sanityCheckFullNode(n)
+		if !ok {
+			panic(fmt.Sprintf("Failed to check fullNode. node=%v", n))
+		}
+		//finalList := []common.Hash{}
+		final := 0
+		for pos, child := range &n.Children {
+			// save all hashes from subtrie
+			if child != nil {
+				// DEBUG
+				_, ok := child.(hashNode)
+				if !ok { panic("child of full node not a hashnode") }
+				// DEBUG
+				//restPath := TrieFromNode(child, preimages)
+				count := TrieFromNodeCountKeys(child, preimages, append(key, byte(pos)))
+				//finalList = append(finalList, restPath...)
+				final = final + count
+			}
+		}
+		//return finalList
+		return final
+	case hashNode:
+		// in some cases the hashNode isn't in the pre-images map so try a different one
+		realHash := common.BytesToHash(n)
+		hn := HashNode(n)
+		if hn != realHash {
+			panic(fmt.Sprintf("Hasnode hashes unequal! HashNode: %v, BytesToHash: %v, hn: %v", n, realHash, hn))
+		}
+		actualNodeRaw, exists := preimages[realHash]
+		actualNode, err := decodeNode(nil, actualNodeRaw)
+		//actualNode, err := decodeNode(realHash.Bytes(), actualNodeRaw)
+		//finalList := []common.Hash{}
+		final := 0
+		// if it is expanded go down the path
+		if err == nil && exists {
+			//log.Info("Expanding hashNode in creating subtrie.", "hash", realHash)
+			//finalList = append([]common.Hash{realHash}, TrieFromNode(actualNode,preimages)...)
+			final = final + TrieFromNodeCountKeys(actualNode, preimages, key)
 		}
 		//return finalList
 		return final

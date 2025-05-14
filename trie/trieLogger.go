@@ -111,6 +111,16 @@ func (t *StateTrie) GetKeyLogged(shaKey []byte) []byte {
 
 /// Trie 
 
+func PublicHashKey(key []byte) []byte {
+	var hashKeyBuf [common.HashLength]byte
+	h := newHasher(false)
+	h.sha.Reset()
+	h.sha.Write(key)
+	h.sha.Read(hashKeyBuf[:])
+	returnHasherToPool(h)
+	return hashKeyBuf[:]
+}
+
 // returns teh byte encoding of the root node and its hash
 func (t *Trie) RootBytes() (common.Hash, []byte) {
 	switch n := (t.root).(type) {

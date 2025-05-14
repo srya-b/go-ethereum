@@ -185,7 +185,7 @@ type StateDB struct {
 	loggedDirties []map[common.Address]int
 	loggedOffsets []int
 	accountsInTrie map[common.Address]bool
-	keysInTrie map[KeyKey] bool
+	keysInTrie map[KeyKey]common.Hash
 
 	// Measurements gathered during execution for debugging purposes
 	AccountReads    time.Duration
@@ -247,7 +247,7 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 		nodesForAccount:      make(map[common.Hash][]byte),
 		nodesForKey:          make(map[common.Hash][]byte),
 		accountsInTrie:	      make(map[common.Address]bool),
-		keysInTrie:			  make(map[KeyKey]bool),
+		keysInTrie:			  make(map[KeyKey]common.Hash),
 		journal:              newJournal(),
 		accessList:           newAccessList(),
 		transientStorage:     newTransientStorage(),
@@ -829,6 +829,7 @@ func (s *StateDB) CreateContract(addr common.Address) {
 // Copy creates a deep, independent copy of the state.
 // Snapshots of the copied state cannot be applied to the copy.
 func (s *StateDB) Copy() *StateDB {
+	log.Info("*********Deep copy")
 	// Copy all the basic fields, initialize the memory ones
 	reader, _ := s.db.Reader(s.originalRoot) // impossible to fail
 	state := &StateDB{
@@ -930,7 +931,66 @@ func (s *StateDB) GetRefund() uint64 {
 func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 
 	if s.logState {
-		s.accountsSeen, s.nodesForAccount, s.keysSeen, s.nodesForKey = s.LogFinalize()
+		log.Info("Log state finalize")
+		//s.accountsSeen, s.nodesForAccount, s.keysSeen, s.nodesForKey = s.LogFinalize()
+		accounts, accountNodes, keys, keyNodes := s.LogFinalize()
+		s.accountsSeen = mergeMaps(s.accountsSeen, accounts)
+		s.nodesForAccount = mergeMaps(s.nodesForAccount, accountNodes)
+		s.keysSeen = mergeMaps(s.keysSeen, keys)
+		s.nodesForKey = mergeMaps(s.nodesForKey, keyNodes)
+		// create a trie from this data
+		rootHash, rootRaw := s.trie.RootBytes()
+		if rootRaw != nil {
+			rn, err := trie.PublicDecodeNode(nil, rootRaw)
+			log.Info("Root", "h", rootHash)
+			if err != nil {
+				log.Error("Couldn't decode root from raw.", "hash", rootHash, "raw", rootRaw)
+				panic("Failed to decode root")
+			}
+			// merge the hashes 
+			testMap := make(map[common.Hash][]byte)
+			//for hn, raw := range s.nodesForAccount {
+			for hn, raw := range s.nodesForAccount {
+				testMap[hn] = raw
+			}
+			//for hn, raw := range s.nodesForKey {
+			for hn, raw := range s.nodesForKey {
+				testMap[hn] = raw
+			}
+			
+			// pring all the keys in the trie
+			addrKeys := []common.Hash{}
+			for addr := range s.accountsInTrie {
+				t := trie.PublicHashKey(addr.Bytes())
+				final := []byte{}
+				for _, b := range t {
+					final = append(final, byte(b))	
+				}
+				addrKeys = append(addrKeys, common.BytesToHash(final))
+			}
+			
+			keyKeys := []common.Hash{}
+			vals := []common.Hash{}
+			for kk, val  := range s.keysInTrie {
+				t := trie.PublicHashKey(kk.key.Bytes())
+				final := []byte{}
+				for _, b := range t {
+					final = append(final, byte(b))
+				}
+				keyKeys = append(keyKeys, common.BytesToHash(final))
+				vals = append(vals, val)
+			}
+
+			log.Info("Addr keys in trie", "key", addrKeys)
+
+			log.Info("Keys in trie", "key", keyKeys)
+
+			log.Info("vals in trie", "val", vals)
+
+
+			count := trie.TrieFromNodeCountKeys(rn, testMap, []byte{})
+			log.Info("Crated hashes", "len", count)
+		}
 	}
 
 	addressesToPrefetch := make([]common.Address, 0, len(s.journal.dirties))
@@ -1009,10 +1069,15 @@ func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
 // goes into transaction receipts.
 func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// Finalise all the dirty storage states and write them into the tries
+	log.Info("IntermediateRoot")
 	s.Finalise(deleteEmptyObjects)
 
 	s.accountsInTrie = make(map[common.Address]bool)
-	s.keysInTrie = make(map[KeyKey]bool)
+	s.keysInTrie = make(map[KeyKey]common.Hash)
+	s.accountsSeen = make(map[common.Address][]common.Hash)
+	s.keysSeen = make(map[KeyKey][]common.Hash)
+	s.nodesForAccount = make(map[common.Hash][]byte)
+	s.nodesForKey = make(map[common.Hash][]byte)
 
 	// If there was a trie prefetcher operating, terminate it async so that the
 	// individual storage tries can be updated as soon as the disk load finishes.
