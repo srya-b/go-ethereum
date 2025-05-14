@@ -190,18 +190,10 @@ func (s *stateObject) getState(key common.Hash) (common.Hash, common.Hash) {
 	origin := s.GetCommittedState(key)
 	value, dirty := s.dirtyStorage[key]
 	if dirty {
-	    //s.db.journal.append(getStorageEntry{
-        //        account: &s.address,
-        //        key: &key,
-        //        value: &value,
-        //})
+        s.db.journal.getStorage(s.address, key, value)
 		return value, origin
 	}
-	//s.db.journal.append(getStorageEntry{
-    //        account: &s.address,
-    //        key: &key,
-    //        value: &origin,
-    //})
+    s.db.journal.getStorage(s.address, key, origin)
 	return origin, origin
 }
 
@@ -238,7 +230,7 @@ func (s *stateObject) GetTrieStateLogged(key common.Hash) (common.Hash, []common
 		return common.Hash{}, nil, nil
 	}
 	value.SetBytes(val)
-    log.Info("GetTrieState return", "key", key, "value", value, "paths", len(pathHashes), "raw", len(rawNodesOnPath))
+    //log.Info("GetTrieState return", "key", key, "value", value, "paths", len(pathHashes), "raw", len(rawNodesOnPath))
 	s.originStorage[key] = value
 	return value, pathHashes, rawNodesOnPath
 }
@@ -297,7 +289,8 @@ func (s *stateObject) GetCommittedStateLogged(key common.Hash) (common.Hash, []c
 	// If the snapshot is unavailable or reading from it fails, load from the database.
 	//if s.db.snap == nil || err != nil {
 	start := time.Now()
-    value, err := s.db.reader.Storage(s.address, key)
+    //value, err := s.db.reader.Storage(s.address, key)
+    value, pathHashes, rawNodesOnPath, err := s.db.reader.StorageFromTrie(s.address, key)
 	//tr, err := s.getTrie()
 	if err != nil {
         //log.Info("GetCommittedState getTrie error", "key", key) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
@@ -328,7 +321,7 @@ func (s *stateObject) GetCommittedStateLogged(key common.Hash) (common.Hash, []c
     }
 	s.originStorage[key] = value
 	//return value, pathHashes, rawNodesOnPath
-    return value, nil, nil
+    return value, pathHashes, rawNodesOnPath
 }
 
 // GetCommittedState retrieves the value associated with the specific key
@@ -383,7 +376,7 @@ func (s *stateObject) SetState(key, value common.Hash) common.Hash {
 		return prev
 	}
 	// New value is different, update and journal the change
-	s.db.journal.storageChange(s.address, key, prev, origin)
+	s.db.journal.storageChange(s.address, key, prev, origin, value)
 	s.setState(key, value, origin)
 	return prev
 }
@@ -425,7 +418,7 @@ func (s *stateObject) SetStateLogged(key, value common.Hash)  (common.Hash, []co
 	//	s.db.logger.OnStorageChange(s.address, key, prev, value)
 	//}
     // setState doesn't do anything but update the live storage, nothing special to be done
-    s.db.journal.storageChange(s.address, key, prev, origin)
+    s.db.journal.storageChange(s.address, key, prev, origin, value)
 	s.setState(key, value, origin)
     return prev, pathHashes, rawNodesOnPath
 	//return types.EmptyCodeHash, types.EmptyCodeHash, nil

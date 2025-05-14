@@ -18,6 +18,7 @@ package state
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/lru"
@@ -30,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/trie/utils"
 	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/ethereum/go-ethereum/triedb/database"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // ContractCodeReader defines the interface for accessing contract code.
@@ -66,6 +68,8 @@ type StateReader interface {
 	// - Returns an error only if an unexpected issue occurs
 	// - The returned storage slot is safe to modify after the call
 	Storage(addr common.Address, slot common.Hash) (common.Hash, error)
+
+	StorageFromTrie(addr common.Address, slot common.Hash) (common.Hash, []common.Hash, [][]byte, error)
 }
 
 // Reader defines the interface for accessing accounts, storage slots and contract
@@ -194,6 +198,11 @@ func (r *flatReader) Storage(addr common.Address, key common.Hash) (common.Hash,
 	return value, nil
 }
 
+func (r *flatReader) StorageFromTrie(addr common.Address, key common.Hash) (common.Hash, []common.Hash, [][]byte, error) {
+	panic("Shoudl never call StorageFromTrie for the flatReader!")
+	return common.Hash{}, nil, nil, nil
+}
+
 // trieReader implements the StateReader interface, providing functions to access
 // state from the referenced trie.
 type trieReader struct {
@@ -235,13 +244,17 @@ func newTrieReader(root common.Hash, db *triedb.Database, cache *utils.PointCach
 // An error will be returned if the trie state is corrupted. An nil account
 // will be returned if it's not existent in the trie.
 func (r *trieReader) Account(addr common.Address) (*types.StateAccount, error) {
+	//log.Info("trieReader Account", "addr", addr)
 	account, err := r.mainTrie.GetAccount(addr)
 	if err != nil {
+		log.Info("Err", "e", err)
 		return nil, err
 	}
 	if account == nil {
+		log.Info("account = nil")
 		r.subRoots[addr] = types.EmptyRootHash
 	} else {
+		log.Info("Root", "r", account.Root)
 		r.subRoots[addr] = account.Root
 	}
 	return account, nil
@@ -290,6 +303,38 @@ func (r *trieReader) Storage(addr common.Address, key common.Hash) (common.Hash,
 	return value, nil
 }
 
+func (r *trieReader) StorageFromTrie(addr common.Address, key common.Hash) (common.Hash, []common.Hash, [][]byte, error) {
+	var (
+		tr    Trie
+		found bool
+		value common.Hash
+	)
+	tr, found = r.subTries[addr]
+	if !found {
+		root, ok := r.subRoots[addr]
+		if !ok {
+			panic(fmt.Sprintf("Storage slot access without account trie loaded. addr=%v, key=%v", addr, key))
+		}
+		var err error
+		tr, err = trie.NewStateTrie(trie.StorageTrieID(r.root, crypto.HashData(r.buff, addr.Bytes()), root), r.db)
+		if err != nil {
+			log.Error("Failed to craete trie", "addr", addr, "key", key)
+			panic(err)
+			return common.Hash{}, nil, nil, err
+		}
+		r.subTries[addr] = tr
+	}
+
+	ret, pathHashes, rawNodesOnPath, err := tr.GetStorageLogged(addr, key.Bytes())
+	if err != nil {
+		log.Error("Failed to get stroage logged", "addr", addr, "key", key)
+		panic(err)
+		return common.Hash{}, nil, nil, err
+	}
+	value.SetBytes(ret)
+	return value, pathHashes, rawNodesOnPath, nil
+}
+
 // multiStateReader is the aggregation of a list of StateReader interface,
 // providing state access by leveraging all readers. The checking priority
 // is determined by the position in the reader list.
@@ -316,6 +361,7 @@ func newMultiStateReader(readers ...StateReader) (*multiStateReader, error) {
 // - Returns an error only if an unexpected issue occurs
 // - The returned account is safe to modify after the call
 func (r *multiStateReader) Account(addr common.Address) (*types.StateAccount, error) {
+	//log.Info("multistatereader Account", "addr", addr)
 	var errs []error
 	for _, reader := range r.readers {
 		acct, err := reader.Account(addr)
@@ -343,6 +389,26 @@ func (r *multiStateReader) Storage(addr common.Address, slot common.Hash) (commo
 		errs = append(errs, err)
 	}
 	return common.Hash{}, errors.Join(errs...)
+}
+
+func (r *multiStateReader) StorageFromTrie(addr common.Address, slot common.Hash) (common.Hash, []common.Hash, [][]byte, error) {
+	//var errs []error
+	for _, reader := range r.readers {
+		switch rd := reader.(type) {
+		case *flatReader:
+			continue
+		case *trieReader:
+			slot, pathHashes, rawNodesOnPath, err := rd.StorageFromTrie(addr, slot)
+			if err == nil {
+				return slot, pathHashes, rawNodesOnPath, nil
+			} else {
+				return common.Hash{}, nil, nil, nil
+			}
+		default: continue
+		}
+	}
+	panic(fmt.Sprintf("Cycled through all readers and no trie reader. addr=%v", addr))
+	return common.Hash{}, nil, nil, nil
 }
 
 // reader is the wrapper of ContractCodeReader and StateReader interface.

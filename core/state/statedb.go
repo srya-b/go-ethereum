@@ -28,8 +28,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"encoding/json"
-	"os"
+	_"encoding/json"
+	_"os"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -43,7 +43,7 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/ethereum/go-ethereum/trie/trienode"
 	"github.com/ethereum/go-ethereum/trie/utils"
-	"github.com/ethereum/go-ethereum/rlp"
+	_"github.com/ethereum/go-ethereum/rlp"
 	"github.com/holiman/uint256"
 	"golang.org/x/sync/errgroup"
 )
@@ -184,6 +184,8 @@ type StateDB struct {
 	loggedJournals [][]LogJournalEntry
 	loggedDirties []map[common.Address]int
 	loggedOffsets []int
+	accountsInTrie map[common.Address]bool
+	keysInTrie map[KeyKey] bool
 
 	// Measurements gathered during execution for debugging purposes
 	AccountReads    time.Duration
@@ -244,6 +246,8 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 		keysSeen:             make(map[KeyKey][]common.Hash),
 		nodesForAccount:      make(map[common.Hash][]byte),
 		nodesForKey:          make(map[common.Hash][]byte),
+		accountsInTrie:	      make(map[common.Address]bool),
+		keysInTrie:			  make(map[KeyKey]bool),
 		journal:              newJournal(),
 		accessList:           newAccessList(),
 		transientStorage:     newTransientStorage(),
@@ -506,25 +510,6 @@ func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 }
 
 // GetCommittedState retrieves the value associated with the specific key
-// without any mutations caused in the current execution.
-func (s *StateDB) logGetState(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpGetState, addr: addr, key: key, value: value, node: node})
-	s.pathsTaken = append(s.pathsTaken, pathsTaken)
-	s.totalOps = s.totalOps + 1
-}
-
-func (s *StateDB) logGetStorage(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpGetStorage, addr: addr, key: key, value: value, node: node})
-	s.pathsTaken = append(s.pathsTaken, pathsTaken)
-	s.totalOps = s.totalOps + 1
-}
-	
-func (s *StateDB) logGetStorageMiss(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpGetStorageMiss, addr: addr, key: key, value: value, node: node})
-	s.pathsTaken = append(s.pathsTaken, pathsTaken)
-	s.totalOps = s.totalOps + 1
-}
-
 func (s *StateDB) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
@@ -602,11 +587,6 @@ func (s *StateDB) SetNonce(addr common.Address, nonce uint64, reason tracing.Non
 	}
 }
 
-func (s *StateDB) logSetCode(addr common.Address, codeHash []byte) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpSetCode, addr: addr, key: emptyHash, value: emptyHash, node: codeHash})
-	s.pathsTaken = append(s.pathsTaken, []common.Hash{})
-	s.totalOps = s.totalOps + 1
-}
 
 func (s *StateDB) SetCode(addr common.Address, code []byte) (prev []byte) {
 	stateObject := s.getOrNewStateObject(addr)
@@ -614,18 +594,6 @@ func (s *StateDB) SetCode(addr common.Address, code []byte) (prev []byte) {
 		return stateObject.SetCode(crypto.Keccak256Hash(code), code)
 	}
 	return nil
-}
-
-func (s *StateDB) logSetStateCreate(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpSetStateCreate, addr: addr, key: key, value: value, node: node})
-	s.pathsTaken = append(s.pathsTaken, pathsTaken)
-	s.totalOps = s.totalOps + 1
-}
-
-func (s *StateDB) logSetState(addr common.Address, key common.Hash, value common.Hash, node []byte, pathsTaken []common.Hash) {
-	s.opsCalled = append(s.opsCalled, OP{op: OpSetStateCreate, addr: addr, key: key, value: value, node: node})
-	s.pathsTaken = append(s.pathsTaken, pathsTaken)
-	s.totalOps = s.totalOps + 1
 }
 
 func (s *StateDB) SetState(addr common.Address, key, value common.Hash) common.Hash {
@@ -671,6 +639,9 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 // The account's state object is still available until the state is committed,
 // getStateObject will return a non-nil account after SelfDestruct.
 func (s *StateDB) SelfDestruct(addr common.Address) uint256.Int {
+	if s.logState {
+		log.Info("SelfDestruct address", "addr", addr)
+	}
 	stateObject := s.getStateObject(addr)
 	var prevBalance uint256.Int
 	if stateObject == nil {
@@ -750,83 +721,19 @@ func (s *StateDB) deleteStateObject(addr common.Address) {
 	}
 }
 
-//func (s *StateDB) getStateObject2(addr common.Address) *stateObject {
-//	// Prefer live objects if any is available
-//	if obj := s.stateObjects[addr]; obj != nil {
-//		//log.Info("Live stateobject", "addr", addr)
-//		s.journal.append(getStateObjectEntry{account: &addr})
-//		return obj
-//	}
-//	// Short circuit if the account is already destructed in this block.
-//	if _, ok := s.stateObjectsDestruct[addr]; ok {
-//		// let it return here because a destruted object is always known and instantly checked
-//		// eventually the advice or whatever can inform that something is destroyed, and we don't
-//		// want to cache anything explored here
-//		s.journal.append(getStateObjectEntry{account: &addr})
-//		return nil
-//	}
-//	// If no live objects are available, attempt to use snapshots
-//	var data *types.StateAccount
-//	if s.snap != nil {
-//		//log.Info("Searching in snapshot", "addr", addr)
-//		start := time.Now()
-//		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
-//		s.SnapshotAccountReads += time.Since(start)
-//
-//		if err == nil {
-//			if acc == nil {
-//				return nil
-//			}
-//			data = &types.StateAccount{
-//				Nonce:    acc.Nonce,
-//				Balance:  acc.Balance,
-//				CodeHash: acc.CodeHash,
-//				Root:     common.BytesToHash(acc.Root),
-//			}
-//			if len(data.CodeHash) == 0 {
-//				data.CodeHash = types.EmptyCodeHash.Bytes()
-//			}
-//			if data.Root == (common.Hash{}) {
-//				data.Root = types.EmptyRootHash
-//			}
-//		}
-//	}
-//	// If snapshot unavailable or reading from it failed, load from the database
-//	if data == nil {
-//		//log.Info("Not in snapshot", "addr", addr)
-//		start := time.Now()
-//		var err error
-//		data, err = s.trie.GetAccount(addr)
-//		s.AccountReads += time.Since(start)
-//
-//		if err != nil {
-//			s.setError(fmt.Errorf("getDeleteStateObject (%x) error: %w", addr.Bytes(), err))
-//			return nil
-//		}
-//		if data == nil {
-//			//log.Info("data == nil")
-//			return nil
-//		}
-//	}
-//	// Insert into the live set
-//	//log.Info("logging and creating a new object from data", "addr", addr)
-//	//log.Info("appending to journal")
-//	s.journal.append(getStateObjectEntry{account: &addr})
-//	//log.Info("done appending")
-//	obj := newObject(s, addr, data)
-//	s.setStateObject(obj)
-//	return obj
-//}
-
 // getStateObject retrieves a state object given by the address, returning nil if
 // the object is not found or was deleted in this execution context.
 func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	// Prefer live objects if any is available
+	//log.Info("getStateObject", "addr", addr)
 	if obj := s.stateObjects[addr]; obj != nil {
+		//log.Info("In stateObjects")
+		s.journal.getState(addr)
 		return obj
 	}
 	// Short circuit if the account is already destructed in this block.
 	if _, ok := s.stateObjectsDestruct[addr]; ok {
+		log.Info("destructed")
 		// let it return here because a destruted object is always known and instantly checked
 		// eventually the advice or whatever can inform that something is destroyed, and we don't
 		// want to cache anything explored here
@@ -835,7 +742,9 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	s.AccountLoaded++
 
 	start := time.Now()
+	//log.Info("Get reader")
 	acct, err := s.reader.Account(addr)
+	s.journal.getState(addr)
 	if err != nil {
 		s.setError(fmt.Errorf("getStateObject (%x) error: %w", addr.Bytes(), err))
 		return nil
@@ -866,6 +775,7 @@ func (s *StateDB) setStateObject(object *stateObject) {
 
 // getOrNewStateObject retrieves a state object or create a new state object if nil.
 func (s *StateDB) getOrNewStateObject(addr common.Address) *stateObject {
+	//log.Info("getOrNewstateObject", "addr", addr)
 	obj := s.getStateObject(addr)
 	if obj == nil {
 		obj = s.createObject(addr)
@@ -1014,136 +924,15 @@ func (s *StateDB) GetRefund() uint64 {
 	return s.refund
 }
 
-func valueToLeaf(value common.Hash) []byte {
-	trimmed := common.TrimLeftZeroes(value[:])
-	return trimmed
-}
-
-func stateObjectToBytes(obj *stateObject) []byte {
-	data, err := rlp.EncodeToBytes(&(obj.data))
-	if err != nil {
-		log.Error("Erroneous state object", "data", obj.data)
-		panic(fmt.Sprintf("Failed to encode accound for %v, %v", obj.address, err))
-	}
-	return data
-}
-	
-
-func (s *StateDB) accountToBytes(addr common.Address) []byte {
-	obj, exist := s.stateObjects[addr]
-	if !exist {
-		panic(fmt.Sprintf("Called accountToEncodeNode with address not in stateObjects: %v", addr))
-	}
-	return stateObjectToBytes(obj)
-}
-
-func isArbosAddress(addr common.Address) bool {
-	isRandomAddress := addr.Cmp(common.HexToAddress("0xa4B00000000000000000000000000000000000F6")) == 0
-	isRandomAddress2 := addr.Cmp(common.HexToAddress("0x11B57FE348584f042E436c6Bf7c3c3deF171de49")) == 0
-	isEmptyAddress := addr.Cmp(common.HexToAddress("0x0000000000000000000000000000000000000000")) == 0
-	isDevAddress := addr.Cmp(common.HexToAddress("0x3f1Eae7D46d88F08fc2F8ed27FCb2AB183EB2d0E")) == 0
-	isStateAddress := (addr.Cmp(types.ArbosStateAddress) == 0)
-	isOsAddress := (addr.Cmp(types.ArbosAddress) == 0)
-	isSysAddress := (addr.Cmp(types.ArbSysAddress) == 0)
-	isInfoAddress := (addr.Cmp(types.ArbInfoAddress) == 0)
-
-	isTableAddress := (addr.Cmp(types.ArbAddressTableAddress) == 0)           
-	isBLSAddress := (addr.Cmp(types.ArbBLSAddress) == 0)           
-	isFTableAddress := (addr.Cmp(types.ArbFunctionTableAddress) == 0)        
-	isTestAddress := (addr.Cmp(types.ArbosTestAddress) == 0)          
-	isGasInfoAddress := (addr.Cmp(types.ArbGasInfoAddress) == 0)       
-	isOwnerPublicAddress := (addr.Cmp(types.ArbOwnerPublicAddress) == 0)   
-	isAggregatorAddress := (addr.Cmp(types.ArbAggregatorAddress) == 0)    
-	isRetryableAddress := (addr.Cmp(types.ArbRetryableTxAddress) == 0)     
-	isStatAddress := (addr.Cmp(types.ArbStatisticsAddress) == 0)          
-	isOwnerAddress := (addr.Cmp(types.ArbOwnerAddress) == 0)         
-	isWasmAddress := (addr.Cmp(types.ArbWasmAddress) == 0)          
-	isCacheAddress := (addr.Cmp(types.ArbWasmCacheAddress) == 0)         
-	isInterfaceAddress := (addr.Cmp(types.NodeInterfaceAddress) == 0)     
-	isDebugAddress := (addr.Cmp(types.ArbDebugAddress) == 0)         
-	isInterfaceDebugAddress := (addr.Cmp(types.NodeInterfaceDebugAddress) == 0)
-
-
-	if (isStateAddress || isOsAddress || isSysAddress || isInfoAddress ||
-		isTableAddress || isBLSAddress || isFTableAddress || isTestAddress || 
-		isGasInfoAddress || isOwnerPublicAddress || isAggregatorAddress || 
-		isRetryableAddress || isStatAddress || isStateAddress || isOwnerAddress || 
-		isWasmAddress || isCacheAddress || isInterfaceAddress || isDebugAddress || 
-		isInterfaceDebugAddress || isRandomAddress || isDevAddress || isEmptyAddress ||
-		isRandomAddress2) {
-		return true
-	} else {
-		return false
-	}
-}
-
-func (s *StateDB) findStorageChangeInJournal(addr common.Address, key common.Hash) {
-	for _, lentry := range s.journal.logEntries {
-		switch logEntry := (lentry.Entry).(type) {
-		case storageChange:
-			a := logEntry.account
-			k := logEntry.key
-			if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
-				obj, exists := s.stateObjects[a]
-				if !exists {
-					panic("doesn't exist")
-				}
-				newval := obj.GetState(k)
-				log.Info("Target entry", "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", newval)
-			}
-		}
-	}
-}
-
-func (s *StateDB) findGetSets(addr common.Address, key common.Hash) {
-	for idx, lentry := range s.journal.logEntries {
-		switch logEntry := (lentry.Entry).(type) {
-		case getStorageEntry:
-			a := *(logEntry.account)
-			k := *(logEntry.key)
-			if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
-				log.Info("Get target.", "idx", idx, "addr", a, "key", k, "value", *logEntry.value)
-			}
-		case storageChange:
-			a := logEntry.account
-			k := logEntry.key
-			if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
-				obj, exists := s.stateObjects[a]
-				if !exists {
-					panic("doesn't exist")
-				}
-				newval := obj.GetState(k)
-				log.Info("Target entry", "idx", idx, "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", newval)
-			}
-		}
-	}
-}
-
-func (s *StateDB) findGetCreates(addr common.Address) {
-	for idx, lentry := range s.journal.logEntries {
-		switch logEntry := (lentry.Entry).(type) {
-		case getStateObjectEntry:
-			a := *(logEntry.account)
-			if addr.Cmp(a) == 0 {
-				log.Info("Get obj target", "idx", idx, "addr", a)
-			}
-		case createObjectChange:
-			a := logEntry.account
-			if addr.Cmp(a) == 0 {
-				_, exists := s.stateObjects[a]
-				if !exists {
-					panic("obj doesn't exist")
-				}
-				log.Info("Get obj target", "idx", idx, "addr", a)
-			}
-		}
-	}
-}
-
 // Finalise finalises the state by removing the destructed objects and clears
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
 func (s *StateDB) Finalise(deleteEmptyObjects bool) {
+
+	if s.logState {
+		s.accountsSeen, s.nodesForAccount, s.keysSeen, s.nodesForKey = s.LogFinalize()
+	}
+
 	addressesToPrefetch := make([]common.Address, 0, len(s.journal.dirties))
 	for addr, dirtyCount := range s.journal.dirties {
 		isZombie := s.journal.zombieEntries[addr] == dirtyCount
@@ -1158,6 +947,14 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 			continue
 		}
 		if obj.selfDestructed || (deleteEmptyObjects && obj.empty() && !isZombie) {
+			if s.logState {
+				if obj.empty() {
+					log.Info("Address is empty", "addr", obj.address)
+				} 
+				if obj.selfDestructed {
+					log.Info("Address was self destructed", "addr", obj.address)
+				}
+			}
 			delete(s.stateObjects, obj.address)
 			s.markDelete(addr)
 			// We need to maintain account deletions explicitly (will remain
@@ -1187,291 +984,6 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 	//nodesForKey := make(map[common.Hash][]byte)
 	//var hashAccesses []common.Hash
 	//createdAccounts := make(map[common.Address]bool)
-	if s.logState {
-		totalKeysInTrie := 0
-		totalAccountsInTrie := 0
-		for idx, lentry := range s.journal.logEntries {
-			var addr *common.Address
-			var key *common.Hash
-			var keykey KeyKey
-			switch logEntry := (lentry.Entry).(type) {
-			case createObjectChange:
-				// this is a new stateObject so log the hash the value node representation of the state
-				addr = &(logEntry.account)
-				log.Info("create object", "addr", *addr)
-				//if isArbosAddress(*addr) {
-				//	continue
-				//}
-				rawNode := s.accountToBytes(*addr)
-				// the node has no hash so we store the key and value as the same
-				// convert it into a hashNode	
-				rawNodeHash := common.BytesToHash(rawNode)
-				// set it to nil because this is a new account
-				// for all accounts that don't have a path then we know it's a new one
-				s.accountsSeen[*addr] = nil
-				s.nodesForAccount[rawNodeHash] = rawNode
-			case createContractChange:
-				// need to check if this already exists, sometimes the object is created before
-				// the contract is "created"
-				addr = &(logEntry.account)
-				_, ok := s.accountsSeen[*addr]
-				if ok {
-					// this object is created and then set as a contract
-					log.Info("contract crearte of existing obj", "addr", *addr)
-				}
-				//if isArbosAddress(*addr) {
-				//	continue
-				//}
-				rawNode := s.accountToBytes(*addr)
-				rawNodeHash := common.BytesToHash(rawNode)
-				s.accountsSeen[*addr] = nil
-				s.nodesForAccount[rawNodeHash] = rawNode
-			case getStateObjectEntry:
-				addr = logEntry.Account()
-				//if isArbosAddress(*addr) {
-				//	continue
-				//}
-				_, ok := s.accountsSeen[*addr]
-				if !ok {
-					// we haven't seen it so we store the nodes on the path
-					_, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(*addr)
-					if err != nil || len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
-						panic(fmt.Sprintf("GetAccountLogged(addr=%v, idx=%v) gave no data", *addr, idx))
-					}
-					// what about getting addresses that don't exist?
-					totalAccountsInTrie++
-					s.accountsSeen[*addr] = pathHashes
-					//s.nodesForAccount[*addr] = rawNodesOnPath
-					for _, rn := range rawNodesOnPath {
-						//if len(rn) <= 32 {
-						//	log.Info("raw node is less than 32 bytes")
-						//} else {
-						//	log.Info("raw node is larger than 32")
-						//}
-						n, err := trie.PublicDecodeNode(nil, rn)
-						//if err != nil {
-						//	// this might have failed because it's a value of some kind
-						//	panic(err)
-						//}
-						if err == nil {
-							log.Info("log", "addr", *addr)
-							//log.Info("decoded node", "n", n)
-							//s.findGetCreates(*addr)
-							hn := trie.HashNode(n)
-							oldrn, ok := s.nodesForAccount[hn]
-							
-							if ok {
-								// then the raw nodes should be the same
-								if bytes.Compare(rn, oldrn) != 0 {
-									panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
-								}
-							} else {
-								s.nodesForAccount[hn] = rn
-							}
-						} else {
-							// if this is an error, then we assume that this is the raw account and it can't be decoded
-							// therefore we should save the raw node make sure that we can decode this to a state object
-							ret := new(types.StateAccount)
-							err = rlp.DecodeBytes(rn, ret)
-							if err != nil {
-								log.Info("couldn't decode account", "idx", idx, "addr", *addr)
-								panic(err)
-							}
-							// now save this valueNode in the map
-							hn := trie.HashData(rn)
-							oldrn, ok := s.nodesForAccount[hn]
-							if ok {
-								if bytes.Compare(rn, oldrn) != 0 {
-									panic(fmt.Sprintf("Same hash %v has two different accounts", hn))
-								}
-							} else {
-								s.nodesForAccount[hn] = rn
-							}
-						}
-					}
-				}
-			case getStorageEntry:
-				addr = logEntry.Account()
-				//if isArbosAddress(*addr) {
-				//	continue
-				//}
-				key = logEntry.Key()
-				keykey = KeyKey{*addr, *key}
-				// ASSERT that we've sene the account before
-				_, ok := s.accountsSeen[*addr]
-				if !ok {
-					panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
-				}
-			
-				_, ok = s.keysSeen[keykey]
-				if !ok {
-					// get the stateObject first it should be in stateObjects
-					obj, exist := s.stateObjects[*addr]
-					if !exist {
-						panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
-					}
-					//_, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
-					trieVal, pathHashes, rawNodesOnPath := obj.GetTrieStateLogged(*key)
-					var testVal common.Hash
-					testVal.SetBytes(nil)
-					if trieVal.Cmp(testVal) == 0 {
-						log.Error("Get of something that doesn't exist.", "addr", *addr, "key", *key)
-					} else {
-						if len(pathHashes) > 0 && len(rawNodesOnPath) > 0 {
-							totalKeysInTrie++
-						}
-					}
-					if len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
-						// this is only accepted behavior if the root is nil otherwise at least the root 
-						// is always accessed.
-						log.Info("Get keykey", "k", keykey, "b", *(logEntry.value))
-						log.Info("Stateobject", "obj", obj.data, "root", obj.data.Root)
-						if obj.data.Root.Cmp(types.EmptyRootHash) == 0 {
-							// it is correct to log nothing for this key get, maybe we just skip it altogether?
-							continue
-						} else {
-							//s.findStorageChangeInJournal(*addr, *key)
-							s.findGetSets(*addr, *key)
-							panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v, idx=%v) gave no data", *addr, *key, idx))
-						}
-					}
-					s.keysSeen[keykey] = pathHashes
-					//s.nodesForKey[keykey] = rawNodesOnPath
-					for _, rn := range rawNodesOnPath {
-						n, err := trie.PublicDecodeNode(nil, rn)
-						//if err != nil {
-						//	panic(err)
-						//}
-						if err == nil {
-							hn := trie.HashNode(n)
-							oldrn, ok := s.nodesForKey[hn]
-							if ok {
-								if bytes.Compare(rn, oldrn) != 0 {
-									panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
-								}
-							} else {
-								s.nodesForKey[hn] = rn
-							}
-						} else {
-							// this is a valuenode we do the normal check that the hash is in there
-							hn := trie.HashData(rn)
-							oldrn, ok := s.nodesForKey[hn]
-							if ok {
-								if bytes.Compare(rn, oldrn) != 0 {
-									panic(fmt.Sprintf("Same hash %v hash two different valuenodes. rn=%v, oldrn=%v", hn, rn, oldrn))
-								}
-							} else {
-								s.nodesForKey[hn] = rn
-							}
-						}
-					}
-				}
-			case storageChange:
-				// we only care about NEW state created so that we can log that we've seen it		
-				//prev := *(logEntry.prevvalue)
-				//trimmedPrev := common.TrimLeftZeroes(prev[:])
-				var testVal common.Hash
-				testVal.SetBytes(nil)
-				if logEntry.prevvalue.Cmp(testVal) == 0 {
-				//if logEntry.prevvalue == nil {
-				//if len(trimmedPrev) == 0 {
-					// log this as a change
-					addr = &(logEntry.account)
-					key = &(logEntry.key)
-					keykey = KeyKey{*addr, *key}
-					_, ok := s.accountsSeen[*addr]
-					if !ok {
-						panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
-					}
-					_, ok = s.keysSeen[keykey]
-					if ok {
-						// this could have been seen before if a get was attempted for a 0 value
-						log.Error("New keykey seen with prev=nil", "addr", *addr, "key", *key)
-						//panic("New keykey is already seen!")
-					}
-					obj, exist := s.stateObjects[*addr]
-					if !exist {
-						panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
-					}
-					_, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
-					if !(len(pathHashes) == 0 && len(rawNodesOnPath) == 0) {
-						panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
-					}
-					s.keysSeen[keykey] = nil
-					log.Info("Keykey", "k", keykey)
-					// what is the current value
-					v := obj.GetState(*key)
-					rawNode := valueToLeaf(v)
-					s.nodesForKey[v] = rawNode
-				}
-			default:
-			}
-		}
-		// no we've stored all the path hashes and the raw nodes for each key that is gotten
-		// now we log all of this information
-		// sanity checking: assert that all the raw nodes correspond to hashes in the other set
-		inAccounts := 0
-		notInAccounts := 0
-		for _, hashes := range s.accountsSeen {
-			for _, hn := range hashes {
-				_, ok := s.nodesForAccount[hn]
-				if ok {
-					inAccounts++
-				} else {
-					notInAccounts++
-				}
-			}
-		}
-		log.Info("Sanity checks.", "inAccounts", inAccounts, "notInAccounts", notInAccounts)
-		// we shouldn't cache these since they will apply to the next transaction as well
-		// instead, we should mark when one transaction ends and another begins (but this is just the same as 
-		
-		// Q: do we have any conflicting keys between the two maps that aren't empty hashes?
-		// A: no we don't so we can combine the two tries
-		for hn, _ := range s.nodesForAccount {
-			_, exists := s.nodesForKey[hn]
-			if exists {
-				log.Error("Same hash in account and state trie.", "k", hn)
-				panic("Same hash")
-			}
-		}
-
-		for hn, _ := range s.nodesForKey {
-			_, exists := s.nodesForAccount[hn]
-			if exists {
-				log.Error("Same hash in account and state trie.", "k", hn)
-				panic("Same hash")
-			}
-		}
-
-		log.Info("Hashes for account", "l", len(s.nodesForAccount))
-		log.Info("Hashes for key", "l", len(s.nodesForKey))
-		log.Info("Num accounts", "l", len(s.accountsSeen))
-		log.Info("Num keys", "l", len(s.keysSeen))
-		log.Info("Total accounts in trie", "n", totalAccountsInTrie)
-		log.Info("Total keys in tries", "n", totalKeysInTrie)
-
-		// create a trie from this data
-		rootHash, rootRaw := s.trie.RootBytes()
-		if rootRaw != nil {
-			rn, err := trie.PublicDecodeNode(nil, rootRaw)
-			if err != nil {
-				log.Error("Couldn't decode root from raw.", "hash", rootHash, "raw", rootRaw)
-				panic("Failed to decode root")
-			}
-			// merge the hashes 
-			testMap := make(map[common.Hash][]byte)
-			for hn, raw := range s.nodesForAccount {
-				testMap[hn] = raw
-			}
-			for hn, raw := range s.nodesForKey {
-				testMap[hn] = raw
-			}
-			count := trie.TrieFromNodeCount(rn, testMap)
-			log.Info("Crated hashes", "len", count)
-		}
-	}
-
 	// Invalidate journal because reverting across transactions is not allowed.
 	s.clearJournalAndRefund()
 }
@@ -1498,6 +1010,9 @@ func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
 func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// Finalise all the dirty storage states and write them into the tries
 	s.Finalise(deleteEmptyObjects)
+
+	s.accountsInTrie = make(map[common.Address]bool)
+	s.keysInTrie = make(map[KeyKey]bool)
 
 	// If there was a trie prefetcher operating, terminate it async so that the
 	// individual storage tries can be updated as soon as the disk load finishes.
@@ -1538,19 +1053,19 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 
 	//allNodes := mergeMaps(s.nodesForAccount, s.nodesForKey)
 	//encoder := json.NewEncoder(file)
-	jsonData, err := json.Marshal(s.loggedJournals)
-	if err != nil {
-		panic(err)
-	}
+	//jsonData, err := json.Marshal(s.loggedJournals)
+	//if err != nil {
+	//	panic(err)
+	//}
 	//err = encoder.Encode(allNodes)
 	//err = encoder.Encode(s.loggedJournals)
 	//if err != nil {
 	//	panic(err)
 	//}
-	err = os.WriteFile("/home/user/test.json", jsonData, 0644)
-	if err != nil {
-		panic(err)
-	}
+	//err = os.WriteFile("/home/user/test.json", jsonData, 0644)
+	//if err != nil {
+	//	panic(err)
+	//}
 
 	// try to read the json back
 	//file, err = os.OpenFile("/home/user/test.json", os.O_RDONLY, 0644)
@@ -1558,18 +1073,18 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	//	panic(err)
 	//}
 	//decoder := json.NewDecoder(file)
-	fileData, err := os.ReadFile("/home/user/test.json")
-	var testJournal [][]LogJournalEntry
-	err = json.Unmarshal(fileData, &testJournal)
-	if err != nil {
-		panic(err)
-	}
-	//err = decoder.Decode(&testJournal)
+	//fileData, err := os.ReadFile("/home/user/test.json")
+	//var testJournal [][]LogJournalEntry
+	//err = json.Unmarshal(fileData, &testJournal)
 	//if err != nil {
 	//	panic(err)
 	//}
-	log.Info("What is should be", "entry", fmt.Sprintf("%v, %v, %v", s.loggedJournals[0][0].Entry, s.loggedJournals[0][1].Entry, s.loggedJournals[0][2].Entry))
-	log.Info("decoded logged journals", "entry", fmt.Sprintf("%v, %v, %v", testJournal[0][0].Entry, testJournal[0][1].Entry, testJournal[0][2].Entry))
+	////err = decoder.Decode(&testJournal)
+	////if err != nil {
+	////	panic(err)
+	////}
+	//log.Info("What is should be", "entry", fmt.Sprintf("%v, %v, %v", s.loggedJournals[0][0].Entry, s.loggedJournals[0][1].Entry, s.loggedJournals[0][2].Entry))
+	//log.Info("decoded logged journals", "entry", fmt.Sprintf("%v, %v, %v", testJournal[0][0].Entry, testJournal[0][1].Entry, testJournal[0][2].Entry))
 
 	if s.deterministic {
 		addressesToUpdate := make([]common.Address, 0, len(s.mutations))

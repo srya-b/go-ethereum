@@ -64,392 +64,6 @@ type LogJournalEntry struct {
 	Reverted bool
 }
 
-type generic struct {
-	Type string `json:"type"`
-	Data json.RawMessage `json:"data"`
-}
-
-var createObjectChangeS string = "createObjectChange"
-var createZombieChangeS string = "createZombieChange"
-var createContractChangeS string = "createContractChange"
-var selfDestructChangeS string = "selfDestructChange"
-var balanceChangeS string = "balanceChange"
-var nonceChangeS string = "nonceChange"
-var storageChangeS string = "storageChange"
-var codeChangeS string = "codeChange"
-var refundChangeS string = "refundChange"
-var addLogChangeS string = "addLogChange"
-//var addPreimageChangeS string = "addPreimageChange"
-var touchChangeS string = "touchChange"
-var accessListAddAccountChangeS string = "accessListAddAccountChange"
-var accessListAddSlotChangeS string = "accessListAddSlotChange"
-var transientStorageChangeS string = "transientStorageChange"
-var getStateObjectEntryS string = "getStateObjectEntry"
-var getStorageEntryS string = "getStorageEntryS"
-var wasmActivationS string = "wasmActivation"
-var CacheWasmS string = "CacheWasm"
-var EvictWasmS string = "EvictWasm"
-
-
-func (l LogJournalEntry) MarshalJSON() ([]byte, error) {
-	switch entry := (l.Entry).(type) {
-	case createObjectChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: createObjectChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-	case createZombieChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: createZombieChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-	case createContractChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: createContractChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case selfDestructChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: selfDestructChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case balanceChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: balanceChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case nonceChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: nonceChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case storageChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: storageChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case codeChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: codeChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case refundChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: refundChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case addLogChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: addLogChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	//case addPreimageChange:
-	//	d, err := entry.MarshalJSON()
-	//	if err == nil {
-	//		return json.Marshal(&generic{
-	//			Type: addPreimageChangeS,
-	//			Data: d,
-	//		})
-	//	} else {
-	//		panic(err)
-	//	}
-	//	return entry.MarshalJSON()
-	case touchChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: touchChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case accessListAddAccountChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: accessListAddAccountChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case accessListAddSlotChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: accessListAddSlotChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case transientStorageChange:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: transientStorageChangeS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case getStateObjectEntry:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: getStateObjectEntryS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case getStorageEntry:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: getStorageEntryS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case wasmActivation:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: wasmActivationS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case CacheWasm:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: CacheWasmS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	case EvictWasm:
-		d, err := entry.MarshalJSON()
-		if err == nil {
-			return json.Marshal(&generic{
-				Type: EvictWasmS,
-				Data: d,
-			})
-		} else {
-			panic(err)
-		}
-		return entry.MarshalJSON()
-	default:
-		return nil, nil
-	}
-}
-
-func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
-	var out generic
-	if err := json.Unmarshal(b, &out); err != nil {
-		panic(err)
-	}
-
-	//switch entry := (l.Entry).(type) {
-	switch out.Type {
-	case createObjectChangeS:
-		var res createObjectChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res	
-	case createZombieChangeS:
-		var res createZombieChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case createContractChangeS:
-		var res createContractChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case selfDestructChangeS:
-		var res selfDestructChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case balanceChangeS:
-		var res balanceChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case nonceChangeS:
-		var res nonceChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case storageChangeS:
-		var res storageChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case codeChangeS:
-		var res codeChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case refundChangeS:
-		var res refundChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case addLogChangeS:
-		var res addLogChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	//case addPreimageChangeS:
-	//	var res addPreimageChange
-	//	if err := res.UnmarshalJSON(out.Data); err != nil {
-	//		panic(err)
-	//	}
-	//	l.Entry = res
-	case touchChangeS:
-		var res touchChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case accessListAddAccountChangeS:
-		var res accessListAddAccountChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case accessListAddSlotChangeS:
-		var res accessListAddSlotChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case transientStorageChangeS:
-		var res transientStorageChange
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case getStateObjectEntryS:
-		var res getStateObjectEntry
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case getStorageEntryS:
-		var res getStorageEntry
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case wasmActivationS:
-		var res wasmActivation
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case CacheWasmS:
-		var res CacheWasm
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	case EvictWasmS:
-		var res EvictWasm
-		if err := res.UnmarshalJSON(out.Data); err != nil {
-			panic(err)
-		}
-		l.Entry = res
-	default:
-		return nil
-	}
-	return nil
-}
-
 
 func (l LogJournalEntry) toString() string {
 	entryString := l.Entry.toString()
@@ -734,12 +348,13 @@ func (j *journal) destruct(addr common.Address) {
 	j.append(selfDestructChange{account: addr})
 }
 
-func (j *journal) storageChange(addr common.Address, key, prev, origin common.Hash) {
+func (j *journal) storageChange(addr common.Address, key, prev, origin common.Hash, value common.Hash) {
 	j.append(storageChange{
 		account:   addr,
 		key:       key,
 		prevvalue: prev,
 		origvalue: origin,
+		newvalue: value,
 	})
 }
 
@@ -798,6 +413,20 @@ func (j *journal) accessListAddSlot(addr common.Address, slot common.Hash) {
 	})
 }
 
+func (j *journal) getState(addr common.Address) {
+	j.append(getStateObjectEntry{
+		account: addr,
+	})
+}
+
+func (j *journal) getStorage(addr common.Address, key common.Hash, value common.Hash) {
+	j.append(getStorageEntry{
+		account: addr,
+		key: key,
+		value: value,
+	})
+}
+
 type (
 	// Changes to the account trie.
 	createObjectChange struct {
@@ -833,6 +462,7 @@ type (
 		key       common.Hash
 		prevvalue common.Hash
 		origvalue common.Hash
+		newvalue common.Hash
 	}
 	codeChange struct {
 		account  common.Address
@@ -866,13 +496,13 @@ type (
 	}
 
 	getStateObjectEntry struct {
-		account	*common.Address
+		account	common.Address
 	}
 
 	getStorageEntry struct {
-		account	*common.Address
-		key		*common.Hash
-		value	*common.Hash
+		account	common.Address
+		key		common.Hash
+		value	common.Hash
 	}
 )
 
@@ -934,25 +564,25 @@ func (ch getStateObjectEntry) copy() journalEntry {
 
 func (ch getStateObjectEntry) deepCopy() journalEntry {
 	var a common.Address
-	a.SetBytes((*ch.account)[:])
+	a.SetBytes(ch.account[:])
 	return getStateObjectEntry{
-		account: &a,
+		account: a,
 	}
 }
 
 func (ch getStateObjectEntry) Account() *common.Address {
-	return ch.account
+	return &(ch.account)
 }
 
 func (ch getStateObjectEntry) toString() string {
-	return "getStateObject(" + ap(ch.account) + ")"
+	return "getStateObject(" + ap(&(ch.account)) + ")"
 }
 
 func (ch getStateObjectEntry) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct{
 		Account common.Address
 	}{
-		Account: *(ch.account),
+		Account: ch.account,
 	})
 	//return json.Marshal(ch)
 }
@@ -962,25 +592,25 @@ func (ch *getStateObjectEntry) UnmarshalJSON(b []byte) error {
 		Account common.Address
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.account = &(a.Account)
+	ch.account = a.Account
 	return err
 }
 
 
 // getStorageEntry
 func (ch getStorageEntry) toString() string {
-	return "getStorage(" + akv(ch.account, ch.key, ch.value) + ")"
+	return "getStorage(" + akv(&(ch.account), &(ch.key), &(ch.value)) + ")"
 }
 func (ch getStorageEntry) Account() *common.Address {
-	return ch.account
+	return &(ch.account)
 }
 
 func (ch getStorageEntry) Key() *common.Hash {
-	return ch.key
+	return &(ch.key)
 }
 
 func (ch getStorageEntry) Value() *common.Hash {
-	return ch.value
+	return &(ch.value)
 }
 
 func (ch getStorageEntry) revert(s *StateDB) {
@@ -1001,35 +631,31 @@ func (ch getStorageEntry) copy() journalEntry {
 func (ch getStorageEntry) deepCopy() journalEntry {
 	var a common.Address
 	var k common.Hash
+	var v common.Hash
 	a.SetBytes((ch.account)[:])
 	k.SetBytes((ch.key)[:])
-	var v *common.Hash
-	if ch.value == nil {
-		v = nil
-	} else {
-		v = new(common.Hash)
-		v.SetBytes(ch.value[:])
-	}
-	//v.SetBytes((ch.value)[:])
+	v.SetBytes((ch.value)[:])
 	return getStorageEntry{
-		account: &a,
-		key: &k,
+		account: a,
+		key: k,
 		value: v,
 	}
 }
 
 func (ch getStorageEntry) MarshalJSON() ([]byte, error) {
+	var a common.Address
+	var k common.Hash
 	var v common.Hash
-	if ch.value != nil {
-		v.SetBytes(ch.value[:])
-	}
+	a.SetBytes(ch.account[:])
+	k.SetBytes(ch.key[:])
+	v.SetBytes(ch.value[:])
 	return json.Marshal(&struct{
 		Account common.Address
 		Key common.Hash
 		Value common.Hash
 	}{
-		Account: *(ch.account),
-		Key: *(ch.key),
+		Account: a,
+		Key: k,
 		Value: v,
 	})
 		
@@ -1041,14 +667,9 @@ func (ch *getStorageEntry ) UnmarshalJSON(b []byte) error {
 		Value common.Hash
 	}{}
 	err := json.Unmarshal(b, a)
-	ch.account = &a.Account
-	ch.key = &a.Key
-	var emptyHash common.Hash
-	if a.Value.Cmp(emptyHash) == 0 {
-		ch.value = nil
-	} else {
-		ch.value = &(a.Value)
-	}
+	ch.account = a.Account
+	ch.key = a.Key
+	ch.value = a.Value
 	return err
 }
 
@@ -1058,6 +679,7 @@ func (ch createObjectChange) toString() string {
 }
 
 func (ch createObjectChange) revert(s *StateDB) {
+	log.Info("createObjectChange delete", "addr", ch.account)
 	delete(s.stateObjects, ch.account)
 }
 
@@ -1422,7 +1044,8 @@ func (ch storageChange) copy() journalEntry {
 		account:   ch.account,
 		key:       ch.key,
 		prevvalue: ch.prevvalue,
-		//origvalue: ch.origvalue,
+		origvalue: ch.origvalue,
+		newvalue: ch.newvalue,
 	}
 }
 
@@ -1431,10 +1054,12 @@ func (ch storageChange) deepCopy() journalEntry {
 	var k common.Hash
 	var p common.Hash
 	var o common.Hash
+	var n common.Hash
 	a.SetBytes(ch.account[:])
 	k.SetBytes(ch.key[:])
 	p.SetBytes(ch.prevvalue[:])
 	o.SetBytes(ch.origvalue[:])
+	n.SetBytes(ch.newvalue[:])
 	//if ch.prevvalue == nil {
 	//	p = p.SetBytes(nil)
 	//} else {
@@ -1446,6 +1071,7 @@ func (ch storageChange) deepCopy() journalEntry {
 		key: k,
 		prevvalue: p,
 		origvalue: o,
+		newvalue: n,
 	}
 }
 
@@ -1460,11 +1086,13 @@ func (ch storageChange) MarshalJSON() ([]byte, error) {
 		Key common.Hash
 		Prevalue common.Hash
 		Origvalue common.Hash
+		Newvalue common.Hash
 	}{
 		Account: ch.account,
 		Key: ch.key,
 		Prevalue: ch.prevvalue,
 		Origvalue: ch.origvalue,
+		Newvalue: ch.newvalue,
 	})
 }
 func (ch *storageChange) UnmarshalJSON(b []byte) error {
@@ -1473,12 +1101,14 @@ func (ch *storageChange) UnmarshalJSON(b []byte) error {
 		Key common.Hash
 		Prevvalue common.Hash
 		Origvalue common.Hash
+		Newvalue common.Hash
 	}{}
 	err := json.Unmarshal(b, a)
 	ch.account = a.Account
 	ch.key = a.Key
 	ch.prevvalue = a.Prevvalue
 	ch.origvalue = a.Origvalue
+	ch.newvalue = a.Newvalue
 	return err
 }
 
