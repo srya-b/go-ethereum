@@ -28,8 +28,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	_"encoding/json"
-	_"os"
+	"encoding/json"
+	"os"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -211,8 +212,20 @@ type StateDB struct {
 	pathsTaken    [][]common.Hash  // all of the paths accessed
 	opsCalled 	  []OP			   // what GetState/SetState was called
 	totalOps	      int			   // lenth of opsCalled and length of pathsTaken
+
+	numPre		  int
+	numPost       int
+	logDir        string
+	blockNo		  *big.Int
 }
 
+type PreLog struct {
+	Journals [][]LogJournalEntry
+	Accounts map[common.Address][]common.Hash
+	AccountNodes map[common.Hash][]byte
+	Keys map[KeyKey][]common.Hash
+	KeyNodes map[common.Hash][]byte
+}
 
 // New creates a new state from a given trie.
 func New(root common.Hash, db Database) (*StateDB, error) {
@@ -262,7 +275,26 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 	return sdb, nil
 }
 
-func (s *StateDB) StartLogger() {
+func (s *StateDB) StartLogger(d string, b *big.Int) {
+	if len(s.logDir) == 0 {
+		s.blockNo = b
+		s.logDir = d
+
+		if _, err := os.Stat(d); os.IsNotExist(err) {
+			err = os.MkdirAll(d, 0755)
+			if err != nil {
+				log.Error("Couldn't create log directory.", "fn", d)
+				panic(err)
+			}
+		} else if err != nil {
+			log.Error("Checking directory error", "fn", d)
+			panic(err)
+		} else {
+			log.Info("Log directory already exists", "fn", d)
+		}
+	} else {
+		panic("Called StartLogger twice")
+	}
 	s.logState = true
 }
 
@@ -1053,6 +1085,37 @@ type KeyKey struct {
 	key common.Hash
 }
 
+func (k KeyKey) MarshalText() ([]byte, error) {
+	//return []byte(fmt.Sprintf("%s:%s", k.addr, k.key)), nil
+	b1, err := k.addr.MarshalText()
+	if err != nil {
+		return nil, err
+	}
+	b2, err := k.key.MarshalText()
+	if err != nil {
+		return nil, err
+	}
+	return []byte(string(b1) + "," + string(b2)), nil
+}
+
+func (k *KeyKey) UnmarshalText(text []byte) error {
+	//_, err := fmt.Sscanf(string(text), "%s:%s", &k.addr, &k.key)
+	//return err
+	parts := strings.SplitN(string(text), ",", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("Invalid format for keykey: %s", text)
+	}
+	err := k.addr.UnmarshalText([]byte(parts[0]))
+	if err != nil {
+		return err
+	}
+	err = k.key.UnmarshalText([]byte(parts[1]))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
 	testMap := make(map[K]V)
 	for hn, raw := range map1 {
@@ -1064,20 +1127,49 @@ func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
 	return testMap
 }
 
+func (s *StateDB) printPrePost(n int, truth [][]LogJournalEntry) {
+	rawData := s.readPreData(1)
+	var preObj PreLog
+	err := json.Unmarshal(rawData, &preObj)
+	if err != nil {
+		log.Error("Couldn't unmarshal data")
+		panic(err)
+	}
+
+	log.Info("Actual journal data", "data", truth[0][0:4])
+	log.Info("From json", "data", preObj.Journals[0][0:4])
+}
+	
+
+func (s *StateDB) logPreData() {
+	data := PreLog{
+		Journals: s.loggedJournals,
+		Accounts: s.accountsSeen,
+		AccountNodes: s.nodesForAccount,
+		Keys: s.keysSeen,
+		KeyNodes: s.nodesForKey,
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		log.Error("Couldn't marshal json")
+		panic(err)
+	}
+	s.writePreData(jsonData)
+
+	s.printPrePost(1, s.loggedJournals)
+
+}
+
 // IntermediateRoot computes the current root hash of the state trie.
 // It is called in between transactions to get the root hash that
 // goes into transaction receipts.
 func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// Finalise all the dirty storage states and write them into the tries
-	log.Info("IntermediateRoot")
+	if s.logState {
+		log.Info("IntermediateRoot")
+	}
 	s.Finalise(deleteEmptyObjects)
-
-	s.accountsInTrie = make(map[common.Address]bool)
-	s.keysInTrie = make(map[KeyKey]common.Hash)
-	s.accountsSeen = make(map[common.Address][]common.Hash)
-	s.keysSeen = make(map[KeyKey][]common.Hash)
-	s.nodesForAccount = make(map[common.Hash][]byte)
-	s.nodesForKey = make(map[common.Hash][]byte)
 
 	// If there was a trie prefetcher operating, terminate it async so that the
 	// individual storage tries can be updated as soon as the disk load finishes.
@@ -1107,8 +1199,21 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// write all the existing data to file
 	// write all the logged Journals to file where each is a transaction
 
+
 	// since we are confirmed no duplicated hashes, we can merge the two maps and write them to file
 	// as well as the paths for every 
+	if s.logState {
+	}
+
+	s.accountsInTrie = make(map[common.Address]bool)
+	s.keysInTrie = make(map[KeyKey]common.Hash)
+	s.accountsSeen = make(map[common.Address][]common.Hash)
+	s.keysSeen = make(map[KeyKey][]common.Hash)
+	s.nodesForAccount = make(map[common.Hash][]byte)
+	s.nodesForKey = make(map[common.Hash][]byte)
+
+
+
 	//file, err := os.OpenFile("/home/user/test.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	//if err != nil {
 	//	panic(err)
