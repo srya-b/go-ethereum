@@ -375,7 +375,7 @@ func (s *stateObject) GetTrieStateLoggedPostUpdate(key common.Hash) (common.Hash
                 log.Info("[post] trie not nil", "addr", s.address, "key", key, "root", s.data.Root)
             }
 	    	// Prefetcher returned a live trie, swap it out for the current one
-	    	s.trie = tr
+	    	//s.trie = tr
 	    } else {
 	    	// Fetcher not running or empty trie, fallback to the database trie
             if target.Cmp(s.address) == 0 {
@@ -411,7 +411,7 @@ func (s *stateObject) GetTrieStateLoggedPostUpdate(key common.Hash) (common.Hash
 	}
 	value.SetBytes(val[:])
     //log.Info("GetTrieState return", "key", key, "value", value, "paths", len(pathHashes), "raw", len(rawNodesOnPath))
-	s.originStorage[key] = value
+	//s.originStorage[key] = value
 	return value, pathHashes, rawNodesOnPath
 }
 
