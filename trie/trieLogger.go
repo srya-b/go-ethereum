@@ -202,6 +202,52 @@ func CleanNode(origNode node) node {
 		return n
 	}
 }
+
+func (t *Trie) isRootShortNodeOrNil() bool {
+	switch n := (t.root).(type) {
+	case nil, *shortNode:
+		log.Info("shortNode root", "n", n)
+		return true
+	case *fullNode:
+		log.Info("fullNode root", "n", n)
+		return false
+	default:
+		log.Error("storage root not shortNode or fullNode", "n", n)
+		panic("invalid root")
+	}
+}
+
+//func (t *Trie) NumLeaves() int {
+//	return t.numLeaves(t.root)
+//}
+
+//func (t *Trie) numLeaves(origNode node) int {
+//	switch n := (origNode).(type) {
+//	case nil:
+//		return 0
+//	case valueNode:
+//		return 1
+//	case *shortNode:
+//		return t.numLeaves(n.Val)
+//	case *fullNode:
+//		total := 0
+//		for _, c := range &n.Children {
+//			if c != nil {
+//				total += t.numLeaves(c)
+//			}
+//		}
+//		return total
+//	case hashNode:
+//		// skip hashNodes because they're just references
+//		child, err := t.resolveAndTrack(n, key[:pos])
+//		if err != nil {
+//			log.Info("Couldn't resolve node", "n", common.BytesToHash(n[:]))
+//			return 0
+//		}
+//		return t.numLeaves(child)
+//	}
+//}
+
 // for now return the hashes of all the nodes visited, then we can use the root string to confirm and check
 func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, pathHashes []common.Hash, nodes [][]byte, newnode node, didResolve bool, err error) {
 	switch n := (origNode).(type) {

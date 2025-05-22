@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"runtime/debug"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -217,10 +218,18 @@ type StateDB struct {
 	numPost       int
 	logDir        string
 	blockNo		  *big.Int
+	postCompleted bool
 }
 
 type PreLog struct {
 	Journals [][]LogJournalEntry
+	Accounts map[common.Address][]common.Hash
+	AccountNodes map[common.Hash][]byte
+	Keys map[KeyKey][]common.Hash
+	KeyNodes map[common.Hash][]byte
+}
+
+type PostLog struct {
 	Accounts map[common.Address][]common.Hash
 	AccountNodes map[common.Hash][]byte
 	Keys map[KeyKey][]common.Hash
@@ -237,6 +246,8 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Info("New database created")
+	debug.PrintStack()
 	sdb := &StateDB{
 		arbExtraData: &ArbitrumExtraData{
 			unexpectedBalanceDelta: new(big.Int),
@@ -298,25 +309,29 @@ func (s *StateDB) StartLogger(d string, b *big.Int) {
 	s.logState = true
 }
 
+func (s *StateDB) HasLogger() bool {
+	return s.logState
+}
+
 func (s *StateDB) StopLogger() {
 	s.logState = false
 }
 
-func (s *StateDB) PathsTaken() [][]common.Hash {
-	var r [][]common.Hash
-	for _, p := range s.pathsTaken {
-		r = append(r, p)
-	}
-	return r
-}
+//func (s *StateDB) PathsTaken() [][]common.Hash {
+//	var r [][]common.Hash
+//	for _, p := range s.pathsTaken {
+//		r = append(r, p)
+//	}
+//	return r
+//}
 
-func (s *StateDB) OpsCalled() []OP {
-	var r []OP
-	for _, o := range s.opsCalled {
-		r = append(r, o)
-	}
-	return r
-}
+//func (s *StateDB) OpsCalled() []OP {
+//	var r []OP
+//	for _, o := range s.opsCalled {
+//		r = append(r, o)
+//	}
+//	return r
+//}
 
 func (s *StateDB) TotalOps() int {
 	return s.totalOps
@@ -653,6 +668,10 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 	//
 	// TODO (rjl493456442): This function should only be supported by 'unwritable'
 	// state, and all mutations made should be discarded afterward.
+	target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
+	if target.Cmp(addr) == 0 {
+		log.Error("Doing a whole ass setstorage for target address")
+	}
 	obj := s.getStateObject(addr)
 	if obj != nil {
 		if _, ok := s.stateObjectsDestruct[addr]; !ok {
@@ -893,6 +912,19 @@ func (s *StateDB) Copy() *StateDB {
 		logs:                 make(map[common.Hash][]*types.Log, len(s.logs)),
 		logSize:              s.logSize,
 		preimages:            maps.Clone(s.preimages),
+		accountsSeen:		  maps.Clone(s.accountsSeen),
+		keysSeen:			  maps.Clone(s.keysSeen),
+		nodesForAccount:	  maps.Clone(s.nodesForAccount),
+		nodesForKey:		  maps.Clone(s.nodesForKey),
+		accountsInTrie:       maps.Clone(s.accountsInTrie),
+		keysInTrie:           maps.Clone(s.keysInTrie),
+		loggedJournals:		  copyLoggedJournals(s.loggedJournals),
+		logState:			  s.logState,
+		numPre:				  s.numPre,
+		numPost:			  s.numPost,
+		logDir:				  s.logDir,
+		blockNo:			  s.blockNo,
+		postCompleted:        s.postCompleted,
 
 		// Do we need to copy the access list and transient storage?
 		// In practice: No. At the start of a transaction, these two lists are empty.
@@ -978,8 +1010,9 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		// create a trie from this data
 		rootHash, rootRaw := s.trie.RootBytes()
 		if rootRaw != nil {
-			rn, err := trie.PublicDecodeNode(nil, rootRaw)
+			_, err := trie.PublicDecodeNode(nil, rootRaw)
 			log.Info("Root", "h", rootHash)
+			debug.PrintStack()
 			if err != nil {
 				log.Error("Couldn't decode root from raw.", "hash", rootHash, "raw", rootRaw)
 				panic("Failed to decode root")
@@ -1018,17 +1051,21 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 				vals = append(vals, val)
 			}
 
-			log.Info("Addr keys in trie", "key", addrKeys)
+			//log.Info("Addr keys in trie", "key", addrKeys)
 
-			log.Info("Keys in trie", "key", keyKeys)
+			//log.Info("Keys in trie", "key", keyKeys)
 
-			log.Info("vals in trie", "val", vals)
+			//log.Info("vals in trie", "val", vals)
 
 
-			count := trie.TrieFromNodeCountKeys(rn, testMap, []byte{})
-			log.Info("Crated hashes", "len", count)
+			//count := trie.TrieFromNodeCountKeys(rn, testMap, []byte{})
+			//log.Info("Crated hashes", "len", count)
 		}
 	}
+
+	//if s.logState {
+	//	s.findAll(common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf"))
+	//}
 
 	addressesToPrefetch := make([]common.Address, 0, len(s.journal.dirties))
 	for addr, dirtyCount := range s.journal.dirties {
@@ -1132,17 +1169,13 @@ func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
 	return testMap
 }
 
-func (s *StateDB) printPrePost(n int, truth [][]LogJournalEntry) {
-	rawData := s.readPreData(1)
-	var preObj PreLog
-	err := json.Unmarshal(rawData, &preObj)
-	if err != nil {
-		log.Error("Couldn't unmarshal data")
-		panic(err)
-	}
-
-	log.Info("Actual journal data", "data", truth[0][0:4])
-	log.Info("From json", "data", preObj.Journals[0][0:4])
+func (s *StateDB) clearLogData() {
+	s.accountsInTrie = make(map[common.Address]bool)
+	s.keysInTrie = make(map[KeyKey]common.Hash)
+	s.accountsSeen = make(map[common.Address][]common.Hash)
+	s.keysSeen = make(map[KeyKey][]common.Hash)
+	s.nodesForAccount = make(map[common.Hash][]byte)
+	s.nodesForKey = make(map[common.Hash][]byte)
 }
 	
 
@@ -1162,8 +1195,35 @@ func (s *StateDB) logPreData() {
 	}
 	s.writePreData(jsonData)
 
-	s.printPrePost(1, s.loggedJournals)
+	//s.printPre(1, s.loggedJournals)
+}
 
+func (s *StateDB) logPostData(deletedAddrs []common.Address) {
+	// loop over accountsSeen and query from the trie
+	accounts, accountNodes := s.getAccountLogs(deletedAddrs)
+	//accounts = make(map[common.Address][]common.Hash)
+	//accountNodes := make(map[common.Hash][]common.Hash)
+
+	// now do the keys 
+	keys, keyNodes := s.getKeyLogs()
+	//keys := make(map[KeyKey][]common.Hash)
+	//keyNodes := make(map[common.Hash][]byte)
+
+	data := PostLog{
+		Accounts: accounts,
+		AccountNodes: accountNodes,
+		Keys: keys,
+		KeyNodes: keyNodes,
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		log.Error("Couldn't marshal post data")
+		panic(err)
+	}
+
+	s.writePostData(jsonData)
+	//s.printPostAndCheck(1, accounts)
 }
 
 // IntermediateRoot computes the current root hash of the state trie.
@@ -1171,9 +1231,17 @@ func (s *StateDB) logPreData() {
 // goes into transaction receipts.
 func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// Finalise all the dirty storage states and write them into the tries
+	log.Info("Out of logState intermediate root")
 	if s.logState {
-		log.Info("IntermediateRoot")
+		debug.PrintStack()
+		if !s.postCompleted {
+			log.Info("IntermediateRoot")
+		} else {
+			log.Info("DONT DO: intermediate root")
+		}
 	}
+
+	log.Info("Finalise of intermediateRoot", "logstate", s.logState)
 	s.Finalise(deleteEmptyObjects)
 
 	// If there was a trie prefetcher operating, terminate it async so that the
@@ -1208,58 +1276,8 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// since we are confirmed no duplicated hashes, we can merge the two maps and write them to file
 	// as well as the paths for every 
 	if s.logState {
+		s.logPreData()
 	}
-
-	s.accountsInTrie = make(map[common.Address]bool)
-	s.keysInTrie = make(map[KeyKey]common.Hash)
-	s.accountsSeen = make(map[common.Address][]common.Hash)
-	s.keysSeen = make(map[KeyKey][]common.Hash)
-	s.nodesForAccount = make(map[common.Hash][]byte)
-	s.nodesForKey = make(map[common.Hash][]byte)
-
-
-
-	//file, err := os.OpenFile("/home/user/test.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//file.Truncate(0)
-	//defer file.Close()
-
-	//allNodes := mergeMaps(s.nodesForAccount, s.nodesForKey)
-	//encoder := json.NewEncoder(file)
-	//jsonData, err := json.Marshal(s.loggedJournals)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//err = encoder.Encode(allNodes)
-	//err = encoder.Encode(s.loggedJournals)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//err = os.WriteFile("/home/user/test.json", jsonData, 0644)
-	//if err != nil {
-	//	panic(err)
-	//}
-
-	// try to read the json back
-	//file, err = os.OpenFile("/home/user/test.json", os.O_RDONLY, 0644)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//decoder := json.NewDecoder(file)
-	//fileData, err := os.ReadFile("/home/user/test.json")
-	//var testJournal [][]LogJournalEntry
-	//err = json.Unmarshal(fileData, &testJournal)
-	//if err != nil {
-	//	panic(err)
-	//}
-	////err = decoder.Decode(&testJournal)
-	////if err != nil {
-	////	panic(err)
-	////}
-	//log.Info("What is should be", "entry", fmt.Sprintf("%v, %v, %v", s.loggedJournals[0][0].Entry, s.loggedJournals[0][1].Entry, s.loggedJournals[0][2].Entry))
-	//log.Info("decoded logged journals", "entry", fmt.Sprintf("%v, %v, %v", testJournal[0][0].Entry, testJournal[0][1].Entry, testJournal[0][2].Entry))
 
 	if s.deterministic {
 		addressesToUpdate := make([]common.Address, 0, len(s.mutations))
@@ -1402,6 +1420,19 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		}
 		usedAddrs = append(usedAddrs, addr) // Copy needed for closure
 	}
+
+	log.Info("check logState")
+	if s.logState {
+		if !s.postCompleted {
+			log.Info("logging post data", "oprefetcher nil", s.prefetcher != nil, "is witness", s.witness != nil)
+			s.logPostData(deletedAddrs)
+			s.clearLogData()
+			s.postCompleted = true
+		} else {
+			log.Info("Already did post")
+		}
+	}
+
 	if s.deterministic {
 		sort.Slice(deletedAddrs, func(i, j int) bool { return deletedAddrs[i].Cmp(deletedAddrs[j]) < 0 })
 	}
@@ -1423,6 +1454,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	if s.witness != nil {
 		s.witness.AddState(s.trie.Witness())
 	}
+
 	return hash
 }
 
@@ -1622,6 +1654,9 @@ func (s *StateDB) GetTrie() Trie {
 // commit gathers the state mutations accumulated along with the associated
 // trie changes, resetting all internal flags with the new state as the base.
 func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool) (*stateUpdate, error) {
+	if s.logState {
+		log.Info("[commit] starting")
+	}
 	if s.arbExtraData.arbTxFilter {
 		return nil, ErrArbTxFilter
 	}
@@ -1630,7 +1665,13 @@ func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool) (*stateU
 		return nil, fmt.Errorf("commit aborted due to earlier error: %v", s.dbErr)
 	}
 	// Finalize any pending changes and merge everything into the tries
+	if s.logState {
+		log.Info("Intermediateroot from COMMIT")
+	}
 	s.IntermediateRoot(deleteEmptyObjects)
+	if s.logState {
+		log.Info("[commit] intermediateROot done")
+	}
 
 	// Short circuit if any error occurs within the IntermediateRoot.
 	if s.dbErr != nil {
@@ -1775,13 +1816,22 @@ func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool) (*stateU
 
 	origin := s.originalRoot
 	s.originalRoot = root
+	if s.logState {
+		log.Info("[commit] return newstateupdate")
+	}
 	return newStateUpdate(noStorageWiping, origin, root, deletes, updates, nodes, s.arbExtraData.activatedWasms), nil
 }
 
 // commitAndFlush is a wrapper of commit which also commits the state mutations
 // to the configured data stores.
 func (s *StateDB) commitAndFlush(block uint64, deleteEmptyObjects bool, noStorageWiping bool) (*stateUpdate, error) {
+	if s.logState {
+		log.Info("[commitandflush] calling commit")
+	}
 	ret, err := s.commit(deleteEmptyObjects, noStorageWiping)
+	if s.logState {
+		log.Info("[commitandflush] done commit")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1835,6 +1885,9 @@ func (s *StateDB) commitAndFlush(block uint64, deleteEmptyObjects bool, noStorag
 	}
 	s.reader, _ = s.db.Reader(s.originalRoot)
 	s.arbExtraData.unexpectedBalanceDelta.Set(new(big.Int))
+	if s.logState {
+		log.Info("[commitandflush] returning")
+	}
 	return ret, err
 }
 
@@ -1853,7 +1906,13 @@ func (s *StateDB) commitAndFlush(block uint64, deleteEmptyObjects bool, noStorag
 // no empty accounts left that could be deleted by EIP-158, storage wiping
 // should not occur.
 func (s *StateDB) Commit(block uint64, deleteEmptyObjects bool, noStorageWiping bool) (common.Hash, error) {
+	if s.logState {
+		log.Info("Commit start")
+	}
 	ret, err := s.commitAndFlush(block, deleteEmptyObjects, noStorageWiping)
+	if s.logState {
+		log.Info("COmmit done")
+	}
 	if err != nil {
 		return common.Hash{}, err
 	}

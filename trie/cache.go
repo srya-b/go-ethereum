@@ -2874,7 +2874,7 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte)
 		//return []common.Hash{}
 		storageRoot, _, exists := getStorageTrie(n, preimages)
 		if len(n[:]) > 32 && !exists {
-			log.Info("large valueNode doesn't exist", "v", n)
+			//log.Info("large valueNode doesn't exist", "v", n)
 		}
 		if exists {
 			//log.Info("Was able to get storage trie")
