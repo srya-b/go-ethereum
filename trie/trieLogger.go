@@ -172,21 +172,16 @@ func (t *Trie) RootString() string {
 }
 
 func (t *Trie) GetLogged(key []byte) ([]byte, []common.Hash, [][]byte, error) {
-	//log.Info("***************************GetLogged")
 	// Short circuit if the trie is already committed and not usable.
 	if t.committed {
-		//log.Info("GetLogged committed", "key", common.BytesToHash(key))
 		return nil, nil, nil, ErrCommitted
 	}
 	value, pathHashes, rawNodesOnPath, newroot, didResolve, err := t.getLogged(t.root, keybytesToHex(key), 0)
 	if value == nil {
-		//log.Info("Getlogged, empty value", "k", common.BytesToHash(key), "paths", len(pathHashes), "raw", len(rawNodesOnPath))
 	}
-	//log.Info("GetLogged", "p", pathHashes)
 	if err == nil && didResolve {
 		t.root = newroot
 	}
-	//log.Info("GetLogged return", "k", common.BytesToHash(key), "paths", len(pathHashes), "raw", len(rawNodesOnPath))
 	return value, pathHashes, rawNodesOnPath, err
 }
 

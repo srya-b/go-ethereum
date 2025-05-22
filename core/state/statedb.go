@@ -31,7 +31,7 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
-	"runtime/debug"
+	_"runtime/debug"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -246,8 +246,8 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Info("New database created")
-	debug.PrintStack()
+	//log.Info("New database created")
+	//debug.PrintStack()
 	sdb := &StateDB{
 		arbExtraData: &ArbitrumExtraData{
 			unexpectedBalanceDelta: new(big.Int),
@@ -880,7 +880,6 @@ func (s *StateDB) CreateContract(addr common.Address) {
 // Copy creates a deep, independent copy of the state.
 // Snapshots of the copied state cannot be applied to the copy.
 func (s *StateDB) Copy() *StateDB {
-	log.Info("*********Deep copy")
 	// Copy all the basic fields, initialize the memory ones
 	reader, _ := s.db.Reader(s.originalRoot) // impossible to fail
 	state := &StateDB{
@@ -1006,8 +1005,7 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		rootHash, rootRaw := s.trie.RootBytes()
 		if rootRaw != nil {
 			_, err := trie.PublicDecodeNode(nil, rootRaw)
-			log.Info("Root", "h", rootHash)
-			debug.PrintStack()
+			//debug.PrintStack()
 			if err != nil {
 				log.Error("Couldn't decode root from raw.", "hash", rootHash, "raw", rootRaw)
 				panic("Failed to decode root")
@@ -1058,10 +1056,6 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		}
 	}
 
-	//if s.logState {
-	//	s.findAll(common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf"))
-	//}
-
 	addressesToPrefetch := make([]common.Address, 0, len(s.journal.dirties))
 	for addr, dirtyCount := range s.journal.dirties {
 		isZombie := s.journal.zombieEntries[addr] == dirtyCount
@@ -1107,13 +1101,6 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		}
 	}
 
-	//accountsSeen := make(map[common.Address][]common.Hash)
-	//keysSeen := make(map[KeyKey][]common.Hash)
-	//nodesForAccount := make(map[common.Hash][]byte)
-	//nodesForKey := make(map[common.Hash][]byte)
-	//var hashAccesses []common.Hash
-	//createdAccounts := make(map[common.Address]bool)
-	// Invalidate journal because reverting across transactions is not allowed.
 	s.clearJournalAndRefund()
 }
 
@@ -1136,8 +1123,6 @@ func (k KeyKey) MarshalText() ([]byte, error) {
 }
 
 func (k *KeyKey) UnmarshalText(text []byte) error {
-	//_, err := fmt.Sscanf(string(text), "%s:%s", &k.addr, &k.key)
-	//return err
 	parts := strings.SplitN(string(text), ",", 2)
 	if len(parts) != 2 {
 		return fmt.Errorf("Invalid format for keykey: %s", text)
@@ -1196,13 +1181,9 @@ func (s *StateDB) logPreData() {
 func (s *StateDB) logPostData(deletedAddrs []common.Address) {
 	// loop over accountsSeen and query from the trie
 	accounts, accountNodes := s.getAccountLogs(deletedAddrs)
-	//accounts = make(map[common.Address][]common.Hash)
-	//accountNodes := make(map[common.Hash][]common.Hash)
 
 	// now do the keys 
 	keys, keyNodes := s.getKeyLogs()
-	//keys := make(map[KeyKey][]common.Hash)
-	//keyNodes := make(map[common.Hash][]byte)
 
 	data := PostLog{
 		Accounts: accounts,
@@ -1226,9 +1207,7 @@ func (s *StateDB) logPostData(deletedAddrs []common.Address) {
 // goes into transaction receipts.
 func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// Finalise all the dirty storage states and write them into the tries
-	log.Info("Out of logState intermediate root")
 	if s.logState {
-		debug.PrintStack()
 		if !s.postCompleted {
 			log.Info("IntermediateRoot")
 		} else {
@@ -1236,7 +1215,6 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		}
 	}
 
-	log.Info("Finalise of intermediateRoot", "logstate", s.logState)
 	s.Finalise(deleteEmptyObjects)
 
 	// If there was a trie prefetcher operating, terminate it async so that the
@@ -1416,7 +1394,6 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		usedAddrs = append(usedAddrs, addr) // Copy needed for closure
 	}
 
-	log.Info("check logState")
 	if s.logState {
 		if !s.postCompleted {
 			log.Info("logging post data", "oprefetcher nil", s.prefetcher != nil, "is witness", s.witness != nil)
@@ -1424,6 +1401,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 			s.clearLogData()
 			s.postCompleted = true
 		} else {
+			// TODO: do we need this?
 			log.Info("Already did post")
 		}
 	}

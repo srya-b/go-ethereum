@@ -246,10 +246,6 @@ func noGetReverted(logEntries []LogJournalEntry) bool {
 // revert undoes a batch of journalled modifications along with any reverted
 // dirty handling too.
 func (j *journal) revert(statedb *StateDB, snapshot int) {
-	fmt.Println("\n\nReverting\n\n")
-	log.Info("Journal", "len", len(j.entries))
-	log.Info("Log entries", "len", len(j.logEntries), "offset", j.logOffset)
-
 	offset := j.logOffset
 	for i := len(j.entries) - 1; i >= snapshot; i-- {
 		// if the current logEntry is reverted loop until to find an offset that isn't
@@ -303,9 +299,6 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		}
 	}
 	j.entries = j.entries[:snapshot]
-	fmt.Println("\n\nafter revert\n\n")
-	log.Info("Journal", "len", len(j.entries))
-	log.Info("Log entries", "len", len(j.logEntries), "offset", j.logOffset)
 }
 
 // dirty explicitly sets an address to dirty, even if the change entries would
