@@ -271,33 +271,58 @@ func (r *trieReader) Storage(addr common.Address, key common.Hash) (common.Hash,
 		found bool
 		value common.Hash
 	)
+	targetAddr := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
+	if targetAddr.Cmp(addr) == 0 {
+		log.Info("[trieStorage] fetching trie", "key", key)
+	}
 	if r.db.IsVerkle() {
 		tr = r.mainTrie
 	} else {
 		tr, found = r.subTries[addr]
 		if !found {
+			if targetAddr.Cmp(addr) == 0 {
+				log.Info("[trieStorage] subTrie not found")
+			}
 			root, ok := r.subRoots[addr]
 
 			// The storage slot is accessed without account caching. It's unexpected
 			// behavior but try to resolve the account first anyway.
 			if !ok {
+				if targetAddr.Cmp(addr) == 0 {
+					log.Info("[trieStorage] subRoot not found")
+				}
 				_, err := r.Account(addr)
 				if err != nil {
+					if targetAddr.Cmp(addr) == 0 {
+						log.Info("[trieStorage] Account not found")
+					}
 					return common.Hash{}, err
 				}
 				root = r.subRoots[addr]
+				if targetAddr.Cmp(addr) == 0 {
+					log.Info("[trieStorage] Setting root", "root", root)
+				}
 			}
 			var err error
 			tr, err = trie.NewStateTrie(trie.StorageTrieID(r.root, crypto.HashData(r.buff, addr.Bytes()), root), r.db)
 			if err != nil {
+				if targetAddr.Cmp(addr) == 0 {
+					log.Info("[trieStorage] couldn't create statetrie")
+				}
 				return common.Hash{}, err
 			}
 			r.subTries[addr] = tr
+			if targetAddr.Cmp(addr) == 0 {
+				log.Info("[trieStorage] setting new state trie", "root", tr.Hash())
+			}
 		}
 	}
 	ret, err := tr.GetStorage(addr, key.Bytes())
 	if err != nil {
 		return common.Hash{}, err
+	}
+	if targetAddr.Cmp(addr) == 0 {
+		log.Info("[trieStorage] gotstroage from the trie", "root", tr.Hash())
 	}
 	value.SetBytes(ret)
 	return value, nil
@@ -313,13 +338,18 @@ func (r *trieReader) StorageFromTrie(addr common.Address, key common.Hash) (comm
 	if !found {
 		root, ok := r.subRoots[addr]
 		if !ok {
-			panic(fmt.Sprintf("Storage slot access without account trie loaded. addr=%v, key=%v", addr, key))
+			//panic(fmt.Sprintf("Storage slot access without account trie loaded. addr=%v, key=%v", addr, key))
+			_, err := r.Account(addr)
+			if err != nil {
+				return common.Hash{}, nil, nil, err
+			}
+			root = r.subRoots[addr]
 		}
 		var err error
 		tr, err = trie.NewStateTrie(trie.StorageTrieID(r.root, crypto.HashData(r.buff, addr.Bytes()), root), r.db)
 		if err != nil {
 			log.Error("Failed to craete trie", "addr", addr, "key", key)
-			panic(err)
+			//panic(err)
 			return common.Hash{}, nil, nil, err
 		}
 		r.subTries[addr] = tr

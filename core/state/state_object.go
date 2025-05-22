@@ -110,6 +110,45 @@ func newObject(db *StateDB, address common.Address, acct *types.StateAccount) *s
 	}
 }
 
+func (s *stateObject) TryToGetTrie() {
+    if s.trie == nil {
+        log.Info("[Check] Trie is nil")
+        tr := s.getPrefetchedTrie()
+        if tr != nil {
+            log.Info("[Check] prefetcher got a trie")
+        } else {
+            _, err := s.getTrieCustom()
+            if err != nil {
+                log.Error("[Check] Couldn't even get Trie", "Addr", s.address, "root", s.data.Root, "originStorage", s.originStorage, "dirty", s.dirtyStorage, "pending", s.pendingStorage)
+                //panic(err)
+            }
+        }
+    } else {
+        log.Info("[Check] Trie exists", "itsHash", s.trie.Hash())
+    }
+}
+
+
+func (s *stateObject) IsRootShortOrNil() bool {
+	tr := s.getPrefetchedTrie()
+	if tr != nil {
+		// Prefetcher returned a live trie, swap it out for the current one
+		//s.trie = tr
+        return tr.IsRootShortOrNil()
+	} else {
+		// Fetcher not running or empty trie, fallback to the database trie
+		var err error
+		tr, err = s.getTrieCustom()
+		if err != nil {
+			s.db.setError(err)
+            log.Error("Couldn't even get Trie", "Addr", s.address, "root", s.data.Root, "originStorage", s.originStorage, "dirty", s.dirtyStorage, "pending", s.pendingStorage)
+			panic(err)
+		}
+        return tr.IsRootShortOrNil()
+	}
+    //return tr.IsRootShortOrNil()
+}
+
 func (s *stateObject) markSelfdestructed() {
 	s.selfDestructed = true
 }
@@ -134,6 +173,17 @@ func (s *stateObject) getTrie() (Trie, error) {
 	return s.trie, nil
 }
 
+func (s *stateObject) getTrieCustom() (Trie, error) {
+    if s.trie == nil {
+		tr, err := s.db.db.OpenStorageTrie(s.db.originalRoot, s.address, s.data.Root, s.db.trie)
+		if err != nil {
+			return nil, err
+		}
+        return tr, nil
+	}
+	return s.trie, nil
+}
+
 // getPrefetchedTrie returns the associated trie, as populated by the prefetcher
 // if it's available.
 //
@@ -148,6 +198,7 @@ func (s *stateObject) getPrefetchedTrie() Trie {
 		return nil
 	}
 	// Attempt to retrieve the trie from the prefetcher
+    log.Info("Attempting to retrieve trie")
 	return s.db.prefetcher.trie(s.addrHash, s.data.Root)
 }
 
@@ -208,28 +259,157 @@ func (s *stateObject) GetTrieStateLogged(key common.Hash) (common.Hash, []common
 		value common.Hash
 	)
 
-	start := time.Now()
-	tr, err := s.getTrie()
+    target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
+
+    var tr Trie
+    if s.trie == nil {
+        if target.Cmp(s.address) == 0 {
+            log.Info("[trielogged] s.trie is nil", "addr", s.address, "key", key, "root", s.data.Root)
+        }
+	    tr = s.getPrefetchedTrie()
+	    if tr != nil {
+            if target.Cmp(s.address) == 0 {
+                log.Info("[trielogged] trie not nil", "addr", s.address, "key", key, "root", s.data.Root)
+            }
+	    	// Prefetcher returned a live trie, swap it out for the current one
+	    	//s.trie = tr
+	    } else {
+	    	// Fetcher not running or empty trie, fallback to the database trie
+            if target.Cmp(s.address) == 0 {
+                log.Info("[trielogged] Getting from db", "addr", s.address, "key", key, "root", s.data.Root)
+            }
+	    	var err error
+	    	tr, err = s.getTrieCustom()
+	    	if err != nil {
+                log.Info("GetCommittedState getTrie error", "addr", s.address, "key", key, "root", s.data.Root) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
+                log.Info("Erroe", "e", err)
+                //panic(err)
+	    		//s.db.setError(err)
+	    		return common.Hash{}, nil, nil
+	    	}
+	    }
+    } else {
+        if target.Cmp(s.address) == 0 {
+            log.Info("[trielogged] The trie already exists", "addr", s.address, "key", key, "root", s.data.Root)
+        }
+        tr = s.trie
+    }
+    if target.Cmp(s.address) == 0 {
+        log.Info("[trielogged] Calling get storage logged", "addr", s.address, "key", key, "root", s.data.Root)
+    }
+	val, pathHashes, rawNodesOnPath, err := tr.GetStorageLogged(s.address, key.Bytes())
+
 	if err != nil {
-        //log.Info("GetCommittedState getTrie error", "key", key) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
-		s.db.setError(err)
+        log.Info("[trielogged] GetTrieState getstorageerror", "addr", s.address, "key", key, "root", s.data.Root) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
+        panic(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
+		//s.db.setError(err)
 		return common.Hash{}, nil, nil
 	}
-	val, pathHashes, rawNodesOnPath, err := tr.GetStorageLogged(s.address, key.Bytes())
-	s.db.StorageReads += time.Since(start)
+
+	//tr := s.getPrefetchedTrie()
+	//if tr != nil {
+    //    log.Info("trie not nil")
+	//	// Prefetcher returned a live trie, swap it out for the current one
+	//	s.trie = tr
+	//} else {
+	//	// Fetcher not running or empty trie, fallback to the database trie
+    //    log.Info("Getting from db")
+	//	var err error
+	//	tr, err = s.getTrie()
+	//	if err != nil {
+    //        log.Info("GetCommittedState getTrie error", "key", key) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
+    //        log.Info("Erroe", "e", err)
+	//		s.db.setError(err)
+	//		return common.Hash{}, nil, nil
+	//	}
+	//}
+    //log.Info("Calling get storage logged")
+	//val, pathHashes, rawNodesOnPath, err := tr.GetStorageLogged(s.address, key.Bytes())
+	//s.db.StorageReads += time.Since(start)
+
+    //val, pathHashes, rawNodesOnPath, err := s.db.reader.StorageFromTrie(s.address, key)
+	//if err != nil {
+    //    //log.Info("GetCommittedState getTrie error", "key", key) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
+	//	s.db.setError(err)
+	//	return common.Hash{}, nil, nil
+	//}
     //var testValue common.Hash
     //testValue.SetBytes(nil)
-    //if value.Cmp(testValue) == 0 {
+    //if val.Cmp(testValue) == 0 {
     //    log.Info("Zero get origin", "addr", s.address, "key", key, "pathHashes", len(pathHashes))
     //}       
 
-	if err != nil {
-        log.Info("GetTrieState getstorageerror", "key", key) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
-        panic(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
-		s.db.setError(err)
+	//if err != nil {
+    //    log.Info("GetTrieState getstorageerror", "key", key) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
+    //    panic(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
+	//	//s.db.setError(err)
+	//	return common.Hash{}, nil, nil
+	//}
+	value.SetBytes(val[:])
+    //log.Info("GetTrieState return", "key", key, "value", value, "paths", len(pathHashes), "raw", len(rawNodesOnPath))
+	//s.originStorage[key] = value
+	return value, pathHashes, rawNodesOnPath
+}
+
+func (s *stateObject) GetTrieStateLoggedPostUpdate(key common.Hash) (common.Hash, []common.Hash, [][]byte) {
+	if _, destructed := s.db.stateObjectsDestruct[s.address]; destructed {
+        log.Info("GetTrieState destructed", "key", key) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
 		return common.Hash{}, nil, nil
 	}
-	value.SetBytes(val)
+	var (
+		//enc   []byte
+		err   error
+		value common.Hash
+	)
+
+    target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
+
+    var tr Trie
+    if s.trie == nil {
+        if target.Cmp(s.address) == 0 {
+            log.Info("[post] s.trie is nil", "addr", s.address, "key", key, "root", s.data.Root)
+        }
+	    tr = s.getPrefetchedTrie()
+	    if tr != nil {
+            if target.Cmp(s.address) == 0 {
+                log.Info("[post] trie not nil", "addr", s.address, "key", key, "root", s.data.Root)
+            }
+	    	// Prefetcher returned a live trie, swap it out for the current one
+	    	s.trie = tr
+	    } else {
+	    	// Fetcher not running or empty trie, fallback to the database trie
+            if target.Cmp(s.address) == 0 {
+                log.Info("[post] Getting from db", "addr", s.address, "key", key, "root", s.data.Root)
+            }
+	    	var err error
+	    	tr, err = s.getTrieCustom()
+	    	if err != nil {
+                log.Info("[post] GetTrieState getTrie error", "addr", s.address, "key", key, "root", s.data.Root) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
+                log.Info("Erroe", "e", err)
+                //panic(err)
+	    		//s.db.setError(err)
+	    		return common.Hash{}, nil, nil
+	    	}
+	    }
+    } else {
+        if target.Cmp(s.address) == 0 {
+            log.Info("[post] The trie already exists", "addr", s.address, "key", key, "root", s.data.Root)
+        }
+        tr = s.trie
+    }
+
+    if target.Cmp(s.address) == 0 {
+        log.Info("[post] Calling get storage logged", "addr", s.address, "key", key, "root", s.data.Root)
+    }
+	val, pathHashes, rawNodesOnPath, err := tr.GetStorageLogged(s.address, key.Bytes())
+
+	if err != nil {
+        log.Info("[post] GetTrieState getstorageerror", "addr", s.address, "key", key, "root", s.data.Root) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
+        panic(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
+		//s.db.setError(err)
+		return common.Hash{}, nil, nil
+	}
+	value.SetBytes(val[:])
     //log.Info("GetTrieState return", "key", key, "value", value, "paths", len(pathHashes), "raw", len(rawNodesOnPath))
 	s.originStorage[key] = value
 	return value, pathHashes, rawNodesOnPath
@@ -294,6 +474,7 @@ func (s *stateObject) GetCommittedStateLogged(key common.Hash) (common.Hash, []c
 	//tr, err := s.getTrie()
 	if err != nil {
         //log.Info("GetCommittedState getTrie error", "key", key) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
+        panic(err)
 		s.db.setError(err)
 		return common.Hash{}, nil, nil
 	}
@@ -328,10 +509,18 @@ func (s *stateObject) GetCommittedStateLogged(key common.Hash) (common.Hash, []c
 // without any mutations caused in the current execution.
 func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	// If we have a pending write or clean cached, return that
+    target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
+
 	if value, pending := s.pendingStorage[key]; pending {
+        if target.Cmp(s.address) == 0 {
+            log.Info("[GetCommittedState] pending storage", "key", key, "root", s.data.Root, "trie nil", s.trie==nil)
+        }
 		return value
 	}
 	if value, cached := s.originStorage[key]; cached {
+        if target.Cmp(s.address) == 0 {
+            log.Info("[GetCommittedState] originStorage", "key", key, "root", s.data.Root, "trie nil", s.trie == nil)
+        }
 		return value
 	}
 	// If the object was destructed in *this* block (and potentially resurrected),
@@ -346,12 +535,33 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	}
 	s.db.StorageLoaded++
 
+    if target.Cmp(s.address) == 0 {
+        log.Info("[GetCommittedState] get from the reader", "key", key, "root", s.data.Root, "trie nil", s.trie == nil)
+    }
+
 	start := time.Now()
 	value, err := s.db.reader.Storage(s.address, key)
 	if err != nil {
+        if target.Cmp(s.address) == 0 {
+            log.Error("[GetCommittedState] READER ERROR", "key", key, "root", s.data.Root, "trie nil", s.trie == nil)
+        }
 		s.db.setError(err)
 		return common.Hash{}
 	}
+
+    if target.Cmp(s.address) == 0 {
+        if s.trie == nil {
+            value, _, _, err := s.db.reader.StorageFromTrie(s.address, key)
+            if err != nil {
+                log.Error("<><><><>[GetCommittedState] stroage trie error", "root", s.data.Root)
+            } else {
+                log.Info("<><><><> [GetCommittedState] value from trie", "value", value, "root", s.data.Root)
+            }
+        } else {
+            log.Info("[GetCommittedState] trie not nil", "hash", s.trie.Hash())
+        }
+    }
+
 	s.db.StorageReads += time.Since(start)
 
 	// Schedule the resolved storage slots for prefetching if it's enabled.
@@ -361,6 +571,9 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		}
 	}
 	s.originStorage[key] = value
+    if target.Cmp(s.address) == 0 {
+        log.Info("[GetCommittedState] reader value", "key", key, "root", s.data.Root, "trie nil", s.trie == nil)
+    }
 	return value
 }
 
@@ -496,6 +709,11 @@ func (s *stateObject) updateTrie() (Trie, error) {
 	// Retrieve a pretecher populated trie, or fall back to the database. This will
 	// block until all prefetch tasks are done, which are needed for witnesses even
 	// for unmodified state objects.
+    target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
+    if target.Cmp(s.address) == 0 {
+        log.Info("Target address root change", "oldRoot", s.data.Root)
+    }
+
 	tr := s.getPrefetchedTrie()
 	if tr != nil {
 		// Prefetcher returned a live trie, swap it out for the current one
@@ -577,6 +795,14 @@ func (s *stateObject) updateRoot() {
 		return
 	}
 	s.data.Root = tr.Hash()
+    
+    //target := common.HexToHash("0x89082f5e6d4eddbd37e6ebdaf57ea3e05e151027dc189c132cea608b6c19d85e")
+    target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
+    if target.Cmp(s.address) == 0 {
+        //this means that the trie as updated and so it was definitely gotten
+        log.Info("updateRoot found target hash", "addr", s.address, "root", s.data.Root)
+        //log.Info("what is the root", "shortornil", s.IsRootShortOrNil())
+    }
 }
 
 // commitStorage overwrites the clean storage with the storage changes and

@@ -78,6 +78,22 @@ func (l LogJournalEntry) toString() string {
 	}
 }
 
+func copyLogJournal(l []LogJournalEntry) []LogJournalEntry {
+	res := make([]LogJournalEntry, len(l))
+	for i, entry := range l {
+		res[i] = entry.copy()
+	}
+	return res
+}
+
+func copyLoggedJournals(l [][]LogJournalEntry) [][]LogJournalEntry {
+	res := make([][]LogJournalEntry, len(l))
+	for i, log := range l {
+		res[i] = copyLogJournal(log)
+	}
+	return res
+}
+
 func (l LogJournalEntry) copy() LogJournalEntry {
 	return LogJournalEntry{
 			Entry: l.Entry.copy(),
