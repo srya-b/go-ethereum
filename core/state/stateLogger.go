@@ -201,13 +201,11 @@ func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (map[common.Addr
 					log.Info("couldn't decode account", "addr", addr)
 					panic(err)
 				}
-				//log.Info("Decoded it to be a stateAccount")
 				hn = trie.HashData(rn)
 			} else {
 				hn = trie.HashNode(n)
 			}
 				
-			//log.Info("Path hashes", "addr", addr, "entry", n, "err", err)
 			oldrn, ok := accountNodes[hn]
 			if ok {
 				// then the raw nodes should be the same
@@ -229,11 +227,6 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 		addr := keykey.addr
 		key := keykey.key
 
-		//target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
-		//if target.Cmp(addr) == 0 {
-		//	log.Info("Skipping the problem child")
-		//	continue
-		//}
 		obj, exist := s.stateObjects[addr]
 		if !exist {
 			log.Info("Getting the key of account that doesn't exist", "addr", addr)
@@ -244,12 +237,9 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 			continue
 		}
 
-		//_, pathHashes, rawNodesOnPath := obj.GetTrieStateLogged(key)
 		_, pathHashes, rawNodesOnPath := obj.GetTrieStateLoggedPostUpdate(key)
 		if len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
 			// should never get no path unless the root of the account is now empty
-			//log.Info("Get keykey", "a", keykey.addr, "k", keykey.key, "b", logEntry.value)
-			//log.Info("Stateobject", "obj", obj.data, "root", obj.data.Root)
 			if obj.data.Root.Cmp(types.EmptyRootHash) == 0 {
 				// it is correct to log nothing for this key get, maybe we just skip it altogether?
 				panic("This happened again?")
@@ -267,6 +257,7 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 			if err != nil {
 				// this is a valuenode we do the normal check that the hash is in there
 				hn = trie.HashData(rn)
+				// TODO: uncomment this and confirm
 				//oldrn, ok := keyNodes[hn]
 				//if ok {
 				//	if bytes.Compare(rn, oldrn) != 0 {
@@ -300,24 +291,23 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 
 // Finalize logger
 func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Hash][]byte, map[KeyKey][]common.Hash, map[common.Hash][]byte) {
-	//totalKeysInTrie := 0
-	//totalAccountsInTrie := 0
 	target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
 	accounts := make(map[common.Address][]common.Hash)
 	accountNodes := make(map[common.Hash][]byte)
 	keys := make(map[KeyKey][]common.Hash)
 	keyNodes := make(map[common.Hash][]byte)
 
-	targetHash := common.HexToHash("0x89082f5e6d4eddbd37e6ebdaf57ea3e05e151027dc189c132cea608b6c19d85e")
-	obj, exists := s.stateObjects[target]
-	if exists {
-		if targetHash.Cmp(obj.Root()) == 0 {
-			log.Info("Target has target root hash")
-			// see if the trie exists
-			obj.TryToGetTrie()
-		}
-		log.Info("[Check] got through no problem")
-	}
+	// NOTE: sanity check that that a specific root is accessible
+	//targetHash := common.HexToHash("0x89082f5e6d4eddbd37e6ebdaf57ea3e05e151027dc189c132cea608b6c19d85e")
+	//obj, exists := s.stateObjects[target]
+	//if exists {
+	//	if targetHash.Cmp(obj.Root()) == 0 {
+	//		log.Info("Target has target root hash")
+	//		// see if the trie exists
+	//		obj.TryToGetTrie()
+	//	}
+	//	log.Info("[Check] got through no problem")
+	//}
 
 
 	for idx, lentry := range s.journal.logEntries {
@@ -328,13 +318,6 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 		case createObjectChange:
 			// this is a new stateObject so log the hash the value node representation of the state
 			addr = &(logEntry.account)
-			_, ok := s.stateObjects[*addr]
-			_, ok = s.stateObjectsDestruct[*addr]
-			if target.Cmp(*addr) == 0 {
-				log.Info("crate: Address in stateObjects", "addr", *addr, "ok", ok)
-				log.Info("craete: Address destructed", "addr", *addr, "ok", ok)
-				log.Info("create object", "addr", *addr)
-			}
 			rawNode := s.accountToBytes(*addr)
 			// the node has no hash so we store the key and value as the same
 			// convert it into a hashNode	
@@ -379,22 +362,13 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 				}
 				// what about getting addresses that don't exist?
 				if res != nil {
-					if target.Cmp(*addr) == 0 {
-						log.Info("Account in trie", "addr", addr)
-					}
 					s.accountsInTrie[*addr] = true
-				} else {
-					if target.Cmp(*addr) == 0 {
-						log.Info("Account not in trie", "addr", addr)
-					}
 				}
+
 				accounts[*addr] = pathHashes
-				//log.Info("Process raw nodes")
 				for _, rn := range rawNodesOnPath {
 					n, err := trie.PublicDecodeNode(nil, rn)
 					if err == nil {
-						//log.Info("log", "addr", *addr)
-						//log.Info("decoded node")
 						hn := trie.HashNode(n)
 						oldrn, ok := accountNodes[hn]
 						
@@ -409,7 +383,6 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 					} else {
 						// if this is an error, then we assume that this is the raw account and it can't be decoded
 						// therefore we should save the raw node make sure that we can decode this to a state object
-						log.Info("It's probably a state account")
 						ret := new(types.StateAccount)
 						err = rlp.DecodeBytes(rn, ret)
 						if err != nil {
@@ -442,9 +415,6 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 			//_, ok = s.keysSeen[keykey]
 			_, ok = keys[keykey]
 			if !ok {
-				if target.Cmp(*addr) == 0 {
-					log.Info("get storage entry", "addr", *addr)
-				}
 				// get the stateObject first it should be in stateObjects
 				obj, exist := s.stateObjects[*addr]
 				if !exist {
@@ -453,11 +423,7 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 				trieVal, pathHashes, rawNodesOnPath := obj.GetTrieStateLogged(*key)
 				var testVal common.Hash
 				testVal.SetBytes(nil)
-				if trieVal.Cmp(testVal) == 0 {
-					if target.Cmp(*addr) == 0 {
-						log.Error("Get of something that doesn't exist.", "addr", *addr, "key", *key)
-					}
-				} else {
+				if trieVal.Cmp(testVal) != 0 {
 					if len(pathHashes) > 0 && len(rawNodesOnPath) > 0 {
 						s.keysInTrie[keykey] = trieVal
 					}
@@ -466,69 +432,40 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 					// this is only accepted behavior if the root is nil otherwise at least the root 
 					// is always accessed.
 					// OR the root node is a short node and there is only 1 key in the trie
-					log.Info("Get keykey", "a", keykey.addr, "k", keykey.key, "b", logEntry.value)
-					log.Info("Stateobject", "obj", obj.data, "root", obj.data.Root)
-					//testAcct, err := s.reader.Account(*addr)
-					//if err != nil {
-					//	log.Error("Couldn't get state object from reader")
-					//} else {
-					//	log.Info("Account from reader", "acct", testAcct)
-					//}
-					//testStorage, testpaths, _,  err := s.reader.StorageFromTrie(*addr, *key)
-					//if err != nil {
-					//	log.Error("Couldn't get slot from trie from reader")
-					//} else {
-					//	log.Info("Trie storage from reader", "value", testStorage, "paths", len(testpaths))
-					//}
-					//obj.IsRootShortOrNil()
 					if (obj.data.Root.Cmp(types.EmptyRootHash) == 0) {
 						// it is correct to log nothing for this key get, maybe we just skip it altogether?
 						continue
 					} else {
-						log.Info("****>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 						s.findAll(*addr)	
 						//s.findGetCreates(*addr)
-						log.Info("*****>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 						s.findGetSets(*addr, *key)
 						m, _ := accounts[*addr]
 						log.Error("Account information", "hashes", m)
-						//target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
-						log.Info("Is the prefetcher running", "b", s.prefetcher != nil)
-						if target.Cmp(*addr) == 0 {
-							log.Info("****************************************************")
-						}
 						panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v, idx=%v) gave no data", *addr, *key, idx))
 					}
 				}
 				keys[keykey] = pathHashes
 				for _, rn := range rawNodesOnPath {
 					n, err := trie.PublicDecodeNode(nil, rn)
-					//if err != nil {
-					//	panic(err)
-					//}
 					if err == nil {
 						hn := trie.HashNode(n)
-						//oldrn, ok := s.nodesForKey[hn]
 						oldrn, ok := keyNodes[hn]
 						if ok {
 							if bytes.Compare(rn, oldrn) != 0 {
 								panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
 							}
 						} else {
-							//s.nodesForKey[hn] = rn
 							keyNodes[hn] = rn
 						}
 					} else {
 						// this is a valuenode we do the normal check that the hash is in there
 						hn := trie.HashData(rn)
-						//oldrn, ok := s.nodesForKey[hn]
 						oldrn, ok := keyNodes[hn]
 						if ok {
 							if bytes.Compare(rn, oldrn) != 0 {
 								panic(fmt.Sprintf("Same hash %v hash two different valuenodes. rn=%v, oldrn=%v", hn, rn, oldrn))
 							}
 						} else {
-							//s.nodesForKey[hn] = rn
 							keyNodes[hn] = rn
 						}
 					}
@@ -569,9 +506,6 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 					panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
 				}
 				keys[keykey] = nil
-				if target.Cmp(*addr) == 0 {
-					log.Info("Keykey", "k", keykey)
-				}
 				// what is the current value
 				v := obj.GetState(*key)
 				rawNode := valueToLeaf(v)
@@ -598,18 +532,10 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 	//log.Info("Sanity checks.", "inAccounts", inAccounts, "notInAccounts", notInAccounts)
 	// we shouldn't cache these since they will apply to the next transaction as well
 	// instead, we should mark when one transaction ends and another begins (but this is just the same as 
-
 	if conflict(accountNodes, keyNodes) {
 		panic("Conflict in the two maps")
 	}
 	
-	//log.Info("Hashes for account", "l", len(accountNodes))
-	//log.Info("Hashes for key", "l", len(keyNodes))
-	//log.Info("Num accounts", "l", len(accounts))
-	//log.Info("Num keys", "l", len(keys))
-	//log.Info("Total accounts in trie", "n", len(s.accountsInTrie))
-	//log.Info("Total keys in tries", "n", len(s.keysInTrie))
-
 	return accounts, accountNodes, keys, keyNodes
 }
 
