@@ -200,6 +200,8 @@ type Trie interface {
 
 	// IsVerkle returns true if the trie is verkle-tree based
 	IsVerkle() bool
+
+	IsRootShortOrNil() bool
 }
 
 type OpenTrie interface {

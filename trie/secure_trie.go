@@ -114,6 +114,10 @@ func (t *StateTrie) GetStorage(_ common.Address, key []byte) ([]byte, error) {
 	return content, err
 }
 
+func (t *StateTrie) IsRootShortOrNil() bool {
+	return t.trie.isRootShortNodeOrNil()
+}
+
 // GetAccount attempts to retrieve an account with provided account address.
 // If the specified account is not in the trie, nil will be returned.
 // If a trie node is not found in the database, a MissingNodeError is returned.
