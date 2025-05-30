@@ -1,7 +1,12 @@
 package state
 
 import (   
+	"fmt"
     "encoding/json"
+
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
 /// Journal stuff
@@ -374,4 +379,112 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
     return nil
 }
 
+func GetCreatedAccountsHashed(j [][]LogJournalEntry) map[common.Hash]bool {
+	m := GetCreatedAccounts(j)
+	out := make(map[common.Hash]bool)
+	for k := range m {
+		hashK := common.BytesToHash(trie.PublicHashKey(k.Bytes()))
+		out[hashK] = true
+	}
+	return out
+}
+
+func GetDeletedAccounts(j [][]LogJournalEntry) map[common.Address]bool {
+	finalSet := make(map[common.Address]bool)
+	for _, jn := range j {
+		for _, e := range jn {
+			switch entry := (e.Entry).(type) {
+			case createObjectChange:
+				// if it is created again after destruct then log that
+				_, ok := finalSet[entry.account]
+				if ok {
+					delete(finalSet, entry.account)
+				}
+			case selfDestructChange:
+				finalSet[entry.account] = true
+			default:
+			}
+		}
+	}
+	return finalSet
+}
+
+func GetEmptyDeletes(emptys [][]common.Address, l [][]LogJournalEntry) map[common.Address]bool {
+	if len(emptys) != len(l) {
+		panic(fmt.Sprintf("Unequal number of journals. emtpys=%v, journal=%v", len(emptys), len(l)))
+	}
+
+	finalSet := make(map[common.Address]bool)
+	for i := 0; i < len(emptys); i++ {
+		cleared := make(map[common.Address]bool)
+		// if there is an empty then we don't need to scan this journal
+		for _, addr := range emptys[i] {
+			if _, ok := finalSet[addr]; ok {
+				panic(fmt.Sprintf("Double empty delete address %v", addr))
+			}
+			// which are deleted
+			cleared[addr] = true
+		}
+
+		// iterate over the journal and ignore deletes
+		for _, e := range l[i] {
+			switch entry := (e.Entry).(type) {
+			case createObjectChange:
+				// if this is already in created then ignore it it is eventually deleted
+				addr := entry.account
+				if _, ok := cleared[addr]; ok {
+					continue
+				}
+				if _, ok := finalSet[addr]; ok {
+					// remove it
+					delete(finalSet, addr)
+				}
+			default:
+			}
+		}
+		
+		// move cleared into finalSet
+		for addr := range cleared {
+			finalSet[addr] = true
+		}
+	}		
+	return finalSet
+}
+
+func GetCreatedAccounts(j [][]LogJournalEntry) map[common.Address]bool {
+	finalSet := make(map[common.Address]bool)
+	for _, jn := range j {
+		accountsCreated := make(map[common.Address]bool)
+		accountsDeleted := make(map[common.Address]bool)
+		for _, e := range jn {
+			switch entry := (e.Entry).(type) {
+			case createObjectChange:
+				accountsCreated[entry.account] = true
+			case selfDestructChange:
+				_, ok := accountsCreated[entry.account]
+				if ok {
+					log.Info("Deleting an account created in the same transaction", "addr", entry.account)
+				}
+				_, ok = finalSet[entry.account]
+				if ok {
+					log.Info("Deleting an existing account", "addr", entry.account)
+				}
+				accountsDeleted[entry.account] = true
+			default: continue
+			}
+		}
+		for addr := range accountsCreated {
+			finalSet[addr] = true
+		}
+		for addr := range accountsDeleted {
+			_, ok := finalSet[addr]
+			if !ok {
+				log.Error("Detleding account not created", "addr", addr)
+			} else {
+				delete(finalSet, addr)
+			}
+		}
+	}
+	return finalSet
+}
 

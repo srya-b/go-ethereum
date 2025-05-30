@@ -106,6 +106,47 @@ func (s *StateDB) findGetCreates(addr common.Address) {
 	}
 }
 
+func PublicFindAll(addr common.Address, j [][]LogJournalEntry) {
+	seenKeys := make(map[KeyKey]bool)
+	for jidx, journ := range j {
+		for idx, lentry := range journ {
+			switch logEntry := (lentry.Entry).(type) {
+			case getStorageEntry:
+				a := logEntry.account
+				k := logEntry.key
+				_, seen := seenKeys[KeyKey{a, k}]
+				if addr.Cmp(a) == 0 {
+					if !seen {
+						log.Info("Get storage target", "journal", jidx, "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
+						seenKeys[KeyKey{a, k}] = true
+					}
+				}
+			case getStateObjectEntry:
+				a := logEntry.account
+				if addr.Cmp(a) == 0 {
+					log.Info("Get obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+				}
+			case createObjectChange:
+				a := logEntry.account
+				if addr.Cmp(a) == 0 {
+					log.Info("create obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+				}
+			case selfDestructChange:
+				a := logEntry.account
+				if addr.Cmp(a) == 0 {
+					log.Info("Self destruct target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+				}
+			case createContractChange:
+				a := logEntry.account
+				if addr.Cmp(a) == 0 {
+					log.Info("create contract change", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+				}
+			default:
+			}
+		}
+	}
+}
+
 func (s *StateDB) findAll(addr common.Address) {
 	seenKeys := make(map[KeyKey]bool)
 	for idx, lentry := range s.journal.logEntries {
@@ -162,9 +203,13 @@ func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (map[common.Addr
 	nilAccounts := []common.Address{}
 	accounts := make(map[common.Address][]common.Hash)
 	accountNodes := make(map[common.Hash][]byte)
+	target := common.HexToAddress("0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE")
 	for addr := range s.accountsSeen {
 		// get the path for this account
 		res, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(addr)
+		if target.Cmp(addr) == 0 {
+			log.Info("Get target account", "res", res, "paths", len(pathHashes))
+		}
 		if err != nil {
 			log.Error("Address get account threw error", "addr", addr)
 			panic(err)
@@ -290,7 +335,7 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 // when a new trie path is created we know which addrs exist now, we can save that
 
 // Finalize logger
-func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Hash][]byte, map[KeyKey][]common.Hash, map[common.Hash][]byte) {
+func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.Hash, map[common.Hash][]byte, map[KeyKey][]common.Hash, map[common.Hash][]byte) {
 	target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
 	accounts := make(map[common.Address][]common.Hash)
 	accountNodes := make(map[common.Hash][]byte)
@@ -308,6 +353,19 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 	//	}
 	//	log.Info("[Check] got through no problem")
 	//}
+
+
+	emptys := []common.Address{}
+	// check which accounts are now emptyy
+	for addr, _ := range s.journal.dirties {
+		obj, exist := s.stateObjects[addr]
+		if !exist {
+			continue 
+		}
+		if obj.empty() {
+			emptys = append(emptys, addr)
+		}
+	}
 
 
 	for idx, lentry := range s.journal.logEntries {
@@ -536,7 +594,7 @@ func (s *StateDB) LogFinalize() (map[common.Address][]common.Hash, map[common.Ha
 		panic("Conflict in the two maps")
 	}
 	
-	return accounts, accountNodes, keys, keyNodes
+	return emptys, accounts, accountNodes, keys, keyNodes
 }
 
 func conflict(m1 map[common.Hash][]byte, m2 map[common.Hash][]byte) bool {

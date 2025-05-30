@@ -2863,27 +2863,23 @@ func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 	}
 }
 
-func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte) int {
+func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte) []common.Hash {
 	switch n := (n).(type) {
 	case valueNode: 
-		if len(key) < 32 {
-			log.Error("Key is not hash length", "l", len(key), "key", fmt.Sprintf("%x", key))
-			panic("aah")
-		}
 		//log.Info("valueNode reached", "valueNode", n, "key", common.BytesToHash(key))
 		//return []common.Hash{}
-		storageRoot, _, exists := getStorageTrie(n, preimages)
-		if len(n[:]) > 32 && !exists {
-			//log.Info("large valueNode doesn't exist", "v", n)
-		}
+		_, _, exists := getStorageTrie(n, preimages)
+		k := PublicHexToKeybytes(key)
 		if exists {
 			//log.Info("Was able to get storage trie")
 			// add the root to the map and recurse
 			//return append([]common.Hash{acc.Root}, TrieFromNode(storageRoot, preimages)...)
-			return 1 + TrieFromNodeCountKeys(storageRoot, preimages, []byte{})
+			//log.Info("Account", "key", k, "l", len(k), "hashKey", common.BytesToHash(k))
+			//return 1 + TrieFromNodeCountKeys(storageRoot, preimages, []byte{})
+			return []common.Hash{common.BytesToHash(k)}
 		} else {
-			//log.Info("Account", "acct", acc)
-			return 1
+			//log.Info("non Account", "key", k, "hash", common.BytesToHash(k))
+			return []common.Hash{common.BytesToHash(k)}
 		}
 	case *shortNode:
 		// shortNodes are extensions or valueNodes
@@ -2896,6 +2892,14 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte)
 		//case hashNode: log.Info("child: hashNode")
 		default:
 		}
+		//r := []byte{}
+		//for _, b := range n.Key {
+		//	r = append(r, byte(b))
+		//}
+		//newk := append(key, r...)
+		//return TrieFromNodeCountKeys(n.Val, preimages, newk)
+		//log.Info("Shortnode", "currk", key, "key", n.Key, "final", append(key, (n.Key)...))
+		//log.Info("Short node", "key", n.Key, "len", len(n.Key), "compact", PublicHexToCompact(n.Key), "len(compact)", len(PublicHexToCompact(n.Key)))
 		return TrieFromNodeCountKeys(n.Val, preimages, append(key, (n.Key)...))
 	case *fullNode:
 		// exension nodes
@@ -2905,7 +2909,7 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte)
 			panic(fmt.Sprintf("Failed to check fullNode. node=%v", n))
 		}
 		//finalList := []common.Hash{}
-		final := 0
+		final := []common.Hash{}
 		for pos, child := range &n.Children {
 			// save all hashes from subtrie
 			if child != nil {
@@ -2914,9 +2918,10 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte)
 				if !ok { panic("child of full node not a hashnode") }
 				// DEBUG
 				//restPath := TrieFromNode(child, preimages)
-				count := TrieFromNodeCountKeys(child, preimages, append(key, byte(pos)))
+				//log.Info("Fullnode", "n", []byte{byte(pos)}, "final", append(key, byte(pos)))
+				accts := TrieFromNodeCountKeys(child, preimages, append(key, byte(pos)))
 				//finalList = append(finalList, restPath...)
-				final = final + count
+				final = append(final, accts...)
 			}
 		}
 		//return finalList
@@ -2932,12 +2937,12 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte)
 		actualNode, err := decodeNode(nil, actualNodeRaw)
 		//actualNode, err := decodeNode(realHash.Bytes(), actualNodeRaw)
 		//finalList := []common.Hash{}
-		final := 0
+		final := []common.Hash{}
 		// if it is expanded go down the path
 		if err == nil && exists {
 			//log.Info("Expanding hashNode in creating subtrie.", "hash", realHash)
 			//finalList = append([]common.Hash{realHash}, TrieFromNode(actualNode,preimages)...)
-			final = final + TrieFromNodeCountKeys(actualNode, preimages, key)
+			final = TrieFromNodeCountKeys(actualNode, preimages, key)
 		}
 		//return finalList
 		return final
