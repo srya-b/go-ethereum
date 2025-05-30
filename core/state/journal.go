@@ -172,7 +172,7 @@ func (j *journal) revertToSnapshot(revid int, s *StateDB) {
 func (j *journal) append(entry journalEntry) {
 	// got getstate logs, only add to logEntries and increment offset
 	switch entry.(type) {
-	case getStateObjectEntry, getStorageEntry:
+	case getStateObjectEntry, getStorageEntry, emptyDeleteEntry:
 		j.logEntries = append(j.logEntries, LogJournalEntry{Entry: entry.deepCopy(), Reverted: false})
 		j.logOffset++
 	default:
@@ -200,7 +200,8 @@ func (j *journal) findReverseOffset(idx int, prev int) (offset int) {
 		// actual journal
 		_, getobjectok := (j.logEntries[i].Entry).(getStateObjectEntry)
 		_, getstorageok := (j.logEntries[i].Entry).(getStorageEntry)
-		if j.logEntries[i].Reverted == true || getobjectok || getstorageok {
+		_, getemptyok := (j.logEntries[i].Entry).(emptyDeleteEntry)
+		if j.logEntries[i].Reverted == true || getobjectok || getstorageok || getemptyok {
 			offset--
 		} else {
 			return offset
@@ -251,17 +252,19 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		// if the current logEntry is reverted loop until to find an offset that isn't
 		_, getobjectok := (j.logEntries[i+offset].Entry).(getStateObjectEntry)
 		_, getstorageok := (j.logEntries[i+offset].Entry).(getStorageEntry)
+		_, getemptyok := (j.logEntries[i+offset].Entry).(emptyDeleteEntry)
 
-		if j.logEntries[i+offset].Reverted == true || getobjectok || getstorageok {
+		if j.logEntries[i+offset].Reverted == true || getobjectok || getstorageok || getemptyok {
 			offset = j.findReverseOffset(i, offset)
 			_, getobjectok = (j.logEntries[i+offset].Entry).(getStateObjectEntry)
 			_, getstorageok = (j.logEntries[i+offset].Entry).(getStorageEntry)
+			_, getemptyok = (j.logEntries[i+offset].Entry).(emptyDeleteEntry)
 			// NOTE: the below commented out conditional is no longer valid because you can reverse because of gets rather than revertes so i+offset+1 doesn't always have to be reverted.
 			//if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) || getobjectok || getstorageok {
-			if !(j.logEntries[i+offset].Reverted == false) || getobjectok || getstorageok {
+			if !(j.logEntries[i+offset].Reverted == false) || getobjectok || getstorageok || getemptyok {
 				log.Info("Computed", "offset", offset, "idx", i)
 				log.Info("SPecial cases", "gets", numGets(j.logEntries), "noGetReverted", noGetReverted(j.logEntries))
-				panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v", j.logEntries[i+offset].Reverted, j.logEntries[i+offset+1].Reverted, getobjectok, getstorageok))
+				panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v, isEmptyDelete=%v", j.logEntries[i+offset].Reverted, j.logEntries[i+offset+1].Reverted, getobjectok, getstorageok, getemptyok))
 			}
 		}
 
@@ -428,6 +431,12 @@ func (j *journal) getState(addr common.Address) {
 	})
 }
 
+func (j *journal) emptyDelete(addr common.Address) {
+	j.append(emptyDeleteEntry{
+		account: addr,
+	})
+}
+
 func (j *journal) getStorage(addr common.Address, key common.Hash, value common.Hash) {
 	j.append(getStorageEntry{
 		account: addr,
@@ -513,6 +522,10 @@ type (
 		key		common.Hash
 		value	common.Hash
 	}
+
+	emptyDeleteEntry struct {
+		account common.Address
+	}
 )
 
 const ad = "addr=%v"
@@ -556,6 +569,52 @@ func akvp(addr *common.Address, key *common.Hash, prev *common.Hash, val *common
 }
 
 	
+// emptyDeleteEntry
+func (ch emptyDeleteEntry) revert(s *StateDB) {
+}
+
+func (ch emptyDeleteEntry) dirtied() *common.Address {
+	return nil
+}
+
+func (ch emptyDeleteEntry) copy() journalEntry {
+	return emptyDeleteEntry{
+		account: ch.account,
+	}
+}
+
+func (ch emptyDeleteEntry) deepCopy() journalEntry {
+	var a common.Address
+	a.SetBytes(ch.account[:])
+	return emptyDeleteEntry{
+		account: a,
+	}
+}
+
+func (ch emptyDeleteEntry) Account() *common.Address {
+	return &(ch.account)
+}
+
+func (ch emptyDeleteEntry) toString() string {
+	return "emptyDeleteEntry(" + ap(&(ch.account)) + ")"
+}
+
+func (ch emptyDeleteEntry) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct{
+		Account common.Address
+	}{
+		Account: ch.account,
+	})
+}
+
+func (ch *emptyDeleteEntry) UnmarshalJSON(b []byte) error {
+	a := &struct{
+		Account common.Address
+	}{}
+	err := json.Unmarshal(b, a)
+	ch.account = a.Account
+	return err
+}
 
 // getStateObjectEntry
 func (ch getStateObjectEntry) revert(s *StateDB) {
