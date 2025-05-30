@@ -44,7 +44,10 @@ func (t *StateTrie) GetStorageLogged(_ common.Address, key []byte) ([]byte, []co
 
 func (t *StateTrie) GetAccountLogged(address common.Address) (*types.StateAccount, []byte, []common.Hash, [][]byte, error) {
 	res, pathHashes, rawNodesOnPath, err := t.trie.GetLogged(t.hashKey(address.Bytes()))
-	//log.Info("GetAccountLogged", "addr", address, "p", len(pathHashes), "err", err)
+	target := common.HexToAddress("0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE")
+	if target.Cmp(address) == 0 {
+		log.Info("GetAccountLogged", "addr", address, "p", len(pathHashes), "err", err)
+	}
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -108,6 +111,88 @@ func (t *StateTrie) GetKeyLogged(shaKey []byte) []byte {
 	//return t.db.Preimage(common.BytesToHash(shaKey))
 	return t.preimages.Preimage(common.BytesToHash(shaKey))
 }
+
+func GetWithKey(origNode node, preimage map[common.Hash][]byte, key []byte, pos int)  (value []byte) {
+	switch n := (origNode).(type) {
+	case nil:
+		return nil
+	case valueNode:
+		return n
+	case *shortNode:
+		if !bytes.HasPrefix(key[pos:], n.Key) {
+			return nil
+		}
+		return GetWithKey(n.Val, preimage, key, pos+len(n.Key))
+	case *fullNode:
+		return GetWithKey(n.Children[key[pos]], preimage, key, pos+1)
+	case hashNode:
+		newn, exists := NodeFromHashNode(n, preimage)
+		if !exists {
+			return nil
+		} 
+		return GetWithKey(newn, preimage, key, pos)
+	default:
+		panic(fmt.Sprintf("%T: invalidnode: %v", origNode, origNode))
+	}
+}
+
+func PublicCompactToHex(compact []byte) []byte {
+	if len(compact) == 0 {
+		return compact
+	}
+	base := keybytesToHex(compact)
+	// delete terminator flag
+	if base[0] < 2 {
+		base = base[:len(base)-1]
+	}
+	// apply odd flag
+	chop := 2 - base[0]&1
+	return base[chop:]
+}
+
+
+func PublicHexToCompact(hex []byte) []byte {
+	terminator := byte(0)
+	if hasTerm(hex) {
+		terminator = 1
+		hex = hex[:len(hex)-1]
+	}
+	buf := make([]byte, len(hex)/2+1)
+	buf[0] = terminator << 5 // the flag byte
+	if len(hex)&1 == 1 {
+		buf[0] |= 1 << 4 // odd flag
+		buf[0] |= hex[0] // first nibble is contained in the first byte
+		hex = hex[1:]
+	}
+	decodeNibbles(hex, buf[1:])
+	return buf
+}
+
+// hexToKeybytes turns hex nibbles into key bytes.
+// This can only be used for keys of even length.
+func PublicHexToKeybytes(hex []byte) []byte {
+	if hasTerm(hex) {
+		hex = hex[:len(hex)-1]
+	}
+	if len(hex)&1 != 0 {
+		panic("can't convert hex key of odd length")
+	}
+	key := make([]byte, len(hex)/2)
+	decodeNibbles(hex, key)
+	return key
+}
+
+func PublicKeybytesToHex(str []byte) []byte {
+	l := len(str)*2 + 1
+	var nibbles = make([]byte, l)
+	for i, b := range str {
+		nibbles[i*2] = b / 16
+		nibbles[i*2+1] = b % 16
+	}
+	nibbles[l-1] = 16
+	return nibbles
+}
+
 
 /// Trie 
 
@@ -272,7 +357,7 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 		nodes = [][]byte{trimmed}
 		return n, pathHashes, nodes, n, false, nil
 	case *shortNode:
-		//log.Info("getLogged shortNode", "n", n)
+		log.Info("getLogged shortNode", "len(key)", len(n.Key), "key", n.Key)
 		// new short node 
 		newsn := &shortNode{Key: hexToCompact(n.Key), Val: n.Val}
 		//newsn := &shortNode{Key: n.Key, Val: n.Val}

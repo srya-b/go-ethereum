@@ -188,6 +188,7 @@ type StateDB struct {
 	loggedOffsets []int
 	accountsInTrie map[common.Address]bool
 	keysInTrie map[KeyKey]common.Hash
+	emptys [][]common.Address
 
 	// Measurements gathered during execution for debugging purposes
 	AccountReads    time.Duration
@@ -221,7 +222,18 @@ type StateDB struct {
 	postCompleted bool
 }
 
+type Log interface {
+	RootHash() common.Hash
+	AccountsSeen() map[common.Address][]common.Hash
+	ANodes() map[common.Hash][]byte
+	KeysSeen() map[KeyKey][]common.Hash
+	KNodes() map[common.Hash][]byte
+	EmptyAccounts() [][]common.Address
+}
+
 type PreLog struct {
+	Root common.Hash
+	EmptyDeletes [][]common.Address
 	Journals [][]LogJournalEntry
 	Accounts map[common.Address][]common.Hash
 	AccountNodes map[common.Hash][]byte
@@ -230,11 +242,50 @@ type PreLog struct {
 }
 
 type PostLog struct {
+	Root common.Hash
 	Accounts map[common.Address][]common.Hash
 	AccountNodes map[common.Hash][]byte
 	Keys map[KeyKey][]common.Hash
 	KeyNodes map[common.Hash][]byte
 }
+
+func (s *PreLog) RootHash() common.Hash {
+	return s.Root
+}
+func (s *PostLog) RootHash() common.Hash {
+	return s.Root
+}
+func (s *PreLog) AccountsSeen() map[common.Address][]common.Hash {
+	return s.Accounts
+}
+func (s *PostLog) AccountsSeen() map[common.Address][]common.Hash {
+	return s.Accounts
+}
+func (s *PreLog) ANodes() map[common.Hash][]byte {
+	return s.AccountNodes
+}
+func (s *PostLog) ANodes() map[common.Hash][]byte {
+	return s.AccountNodes
+}
+func (s *PreLog) KeysSeen() map[KeyKey][]common.Hash {
+	return s.Keys
+}
+func (s *PreLog) EmptyAccounts() [][]common.Address {
+	return s.EmptyDeletes
+}
+func (s *PostLog) KeysSeen() map[KeyKey][]common.Hash {
+	return s.Keys
+}
+func (s *PreLog) KNodes() map[common.Hash][]byte {
+	return s.KeyNodes
+}
+func (s *PostLog) KNodes() map[common.Hash][]byte {
+	return s.KeyNodes
+}
+func (s *PostLog) EmptyAccounts() [][]common.Address {
+	panic("Error")
+}
+
 
 // New creates a new state from a given trie.
 func New(root common.Hash, db Database) (*StateDB, error) {
@@ -272,6 +323,7 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 		nodesForKey:          make(map[common.Hash][]byte),
 		accountsInTrie:	      make(map[common.Address]bool),
 		keysInTrie:			  make(map[KeyKey]common.Hash),
+		emptys:				  [][]common.Address{},
 		journal:              newJournal(),
 		accessList:           newAccessList(),
 		transientStorage:     newTransientStorage(),
@@ -917,6 +969,7 @@ func (s *StateDB) Copy() *StateDB {
 		nodesForKey:		  maps.Clone(s.nodesForKey),
 		accountsInTrie:       maps.Clone(s.accountsInTrie),
 		keysInTrie:           maps.Clone(s.keysInTrie),
+		emptys:				  make([][]common.Address, len(s.emptys)),
 		loggedJournals:		  copyLoggedJournals(s.loggedJournals),
 		logState:			  s.logState,
 		numPre:				  s.numPre,
@@ -935,6 +988,12 @@ func (s *StateDB) Copy() *StateDB {
 		transientStorage: s.transientStorage.Copy(),
 		journal:          s.journal.copy(),
 	}
+	
+	for i, e := range s.emptys {
+		state.emptys[i] = make([]common.Address, len(e))
+		copy(state.emptys[i], e)
+	}
+	
 	if s.witness != nil {
 		state.witness = s.witness.Copy()
 	}
@@ -1000,12 +1059,14 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 
 	if s.logState {
 		log.Info("Log state finalize")
+		log.Info("Root hash", "r", s.trie.Hash())
 		//s.accountsSeen, s.nodesForAccount, s.keysSeen, s.nodesForKey = s.LogFinalize()
-		accounts, accountNodes, keys, keyNodes := s.LogFinalize()
+		emptys, accounts, accountNodes, keys, keyNodes := s.LogFinalize()
 		s.accountsSeen = mergeMaps(s.accountsSeen, accounts)
 		s.nodesForAccount = mergeMaps(s.nodesForAccount, accountNodes)
 		s.keysSeen = mergeMaps(s.keysSeen, keys)
 		s.nodesForKey = mergeMaps(s.nodesForKey, keyNodes)
+		s.emptys = append(s.emptys, emptys)
 		// create a trie from this data
 		rootHash, rootRaw := s.trie.RootBytes()
 		if rootRaw != nil {
@@ -1161,11 +1222,20 @@ func (s *StateDB) clearLogData() {
 	s.keysSeen = make(map[KeyKey][]common.Hash)
 	s.nodesForAccount = make(map[common.Hash][]byte)
 	s.nodesForKey = make(map[common.Hash][]byte)
+	s.emptys = [][]common.Address{}
 }
 	
 
-func (s *StateDB) logPreData() {
+func (s *StateDB) logPreData(r common.Hash) {
+	logEmptys := make([][]common.Address, len(s.emptys))
+	for i, e := range s.emptys {
+		logEmptys[i] = make([]common.Address, len(e))
+		copy(logEmptys[i], e)
+	}
+
 	data := PreLog{
+		Root: r,
+		EmptyDeletes: logEmptys,
 		Journals: s.loggedJournals,
 		Accounts: s.accountsSeen,
 		AccountNodes: s.nodesForAccount,
@@ -1183,7 +1253,7 @@ func (s *StateDB) logPreData() {
 	//s.printPre(1, s.loggedJournals)
 }
 
-func (s *StateDB) logPostData(deletedAddrs []common.Address) {
+func (s *StateDB) logPostData(deletedAddrs []common.Address, r common.Hash) {
 	// loop over accountsSeen and query from the trie
 	accounts, accountNodes := s.getAccountLogs(deletedAddrs)
 
@@ -1191,6 +1261,7 @@ func (s *StateDB) logPostData(deletedAddrs []common.Address) {
 	keys, keyNodes := s.getKeyLogs()
 
 	data := PostLog{
+		Root: r,
 		Accounts: accounts,
 		AccountNodes: accountNodes,
 		Keys: keys,
@@ -1254,7 +1325,10 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// since we are confirmed no duplicated hashes, we can merge the two maps and write them to file
 	// as well as the paths for every 
 	if s.logState {
-		s.logPreData()
+		// get the current trie's root node
+		rootHash := s.trie.Hash()
+		log.Info("pre Root hash", "r", s.trie.Hash())
+		s.logPreData(rootHash)
 	}
 
 	if s.deterministic {
@@ -1400,15 +1474,16 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	}
 
 	if s.logState {
-		if !s.postCompleted {
-			log.Info("logging post data", "oprefetcher nil", s.prefetcher != nil, "is witness", s.witness != nil)
-			s.logPostData(deletedAddrs)
-			s.clearLogData()
-			s.postCompleted = true
-		} else {
-			// TODO: do we need this?
-			log.Info("Already did post")
-		}
+		//if !s.postCompleted {
+		log.Info("logging post data", "oprefetcher nil", s.prefetcher != nil, "is witness", s.witness != nil)
+		log.Info("post Root hash", "r", s.trie.Hash())
+		s.logPostData(deletedAddrs, s.trie.Hash())
+		s.clearLogData()
+		s.postCompleted = true
+		//} else {
+		//	// TODO: do we need this?
+		//	log.Info("Already did post")
+		//}
 	}
 
 	if s.deterministic {
@@ -1632,9 +1707,6 @@ func (s *StateDB) GetTrie() Trie {
 // commit gathers the state mutations accumulated along with the associated
 // trie changes, resetting all internal flags with the new state as the base.
 func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool) (*stateUpdate, error) {
-	if s.logState {
-		log.Info("[commit] starting")
-	}
 	if s.arbExtraData.arbTxFilter {
 		return nil, ErrArbTxFilter
 	}
@@ -1643,13 +1715,7 @@ func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool) (*stateU
 		return nil, fmt.Errorf("commit aborted due to earlier error: %v", s.dbErr)
 	}
 	// Finalize any pending changes and merge everything into the tries
-	if s.logState {
-		log.Info("Intermediateroot from COMMIT")
-	}
 	s.IntermediateRoot(deleteEmptyObjects)
-	if s.logState {
-		log.Info("[commit] intermediateROot done")
-	}
 
 	// Short circuit if any error occurs within the IntermediateRoot.
 	if s.dbErr != nil {

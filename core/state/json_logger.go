@@ -14,14 +14,18 @@ func (s *StateDB) preFn(n int) string {
 	if len(s.logDir) == 0 {
 		panic("Log dir not set")
 	}
-	return fmt.Sprintf("%s/predata-%s-%s.json", s.logDir, s.blockNo, n)
+	log.Info("File name", "logDir", s.logDir, "blockNo", s.blockNo, "n", n)
+	log.Info("Completed", "fmt", fmt.Sprintf("%s/predata-%v-%d.json", s.logDir, s.blockNo, n))
+	return fmt.Sprintf("%s/predata-%v-%d.json", s.logDir, s.blockNo, n)
 }
 
 func (s *StateDB) postFn(n int) string {
 	if len(s.logDir) == 0 {
 		panic("Log dir not set")
 	}
-	return fmt.Sprintf("%s/postdata-%s-%s.json", s.logDir, s.blockNo, n)
+	log.Info("File name", "logDir", s.logDir, "blockNo", s.blockNo, "n", n)
+	log.Info("Completed", "fmt", fmt.Sprintf("%s/postdata-%v-%d.json", s.logDir, s.blockNo, n))
+	return fmt.Sprintf("%s/postdata-%v-%d.json", s.logDir, s.blockNo, n)
 }
 
 func createAndOpenFile(fn string) *os.File {
