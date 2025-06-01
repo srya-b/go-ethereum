@@ -451,6 +451,14 @@ func GetEmptyDeletes(emptys [][]common.Address, l [][]LogJournalEntry) map[commo
 	return finalSet
 }
 
+func PrintJournal(j [][]LogJournalEntry) {
+	for _, journ := range j {
+		for _, e := range journ {
+			fmt.Println(e.Entry.toString())
+		}
+	}
+}
+
 func GetCreatedAccounts(j [][]LogJournalEntry) map[common.Address]bool {
 	finalSet := make(map[common.Address]bool)
 	for _, jn := range j {
