@@ -1223,6 +1223,9 @@ func (s *StateDB) clearLogData() {
 	s.nodesForAccount = make(map[common.Hash][]byte)
 	s.nodesForKey = make(map[common.Hash][]byte)
 	s.emptys = [][]common.Address{}
+
+	// TODO: experimental
+	s.loggedJournals = [][]LogJournalEntry{}
 }
 	
 
@@ -1329,6 +1332,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		rootHash := s.trie.Hash()
 		log.Info("pre Root hash", "r", s.trie.Hash())
 		s.logPreData(rootHash)
+		log.Error("PRE LOGGING", "accoutns", len(s.accountsSeen))
 	}
 
 	if s.deterministic {
@@ -1478,6 +1482,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		log.Info("logging post data", "oprefetcher nil", s.prefetcher != nil, "is witness", s.witness != nil)
 		log.Info("post Root hash", "r", s.trie.Hash())
 		s.logPostData(deletedAddrs, s.trie.Hash())
+		log.Error("POST LOGGING", "accoutns", len(s.accountsSeen))
 		s.clearLogData()
 		s.postCompleted = true
 		//} else {

@@ -38,6 +38,7 @@ func createAndOpenFile(fn string) *os.File {
 
 func (s *StateDB) writePreData(data []byte) {
     s.numPre++
+	log.Info("WRITE PRE DATA", "fn", s.preFn(s.numPre))
     f := createAndOpenFile(s.preFn(s.numPre))
     defer f.Close()
 	_, err := f.Write(data)
@@ -48,6 +49,7 @@ func (s *StateDB) writePreData(data []byte) {
 
 func (s *StateDB) writePostData(data []byte) {
     s.numPost++
+	log.Info("WRITE POST DATA", "dn", s.postFn(s.numPost))
     f := createAndOpenFile(s.postFn(s.numPost))
     defer f.Close()
     _, err := f.Write(data)
