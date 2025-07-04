@@ -1062,6 +1062,7 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		log.Info("Root hash", "r", s.trie.Hash())
 		//s.accountsSeen, s.nodesForAccount, s.keysSeen, s.nodesForKey = s.LogFinalize()
 		emptys, accounts, accountNodes, keys, keyNodes := s.LogFinalize()
+		log.Info("FInished logFInalize")
 		s.accountsSeen = mergeMaps(s.accountsSeen, accounts)
 		s.nodesForAccount = mergeMaps(s.nodesForAccount, accountNodes)
 		s.keysSeen = mergeMaps(s.keysSeen, keys)
@@ -1167,6 +1168,7 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		}
 	}
 
+	log.Info("Clear journal and refund")
 	s.clearJournalAndRefund()
 }
 
@@ -1216,12 +1218,13 @@ func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
 }
 
 func (s *StateDB) clearLogData() {
-	s.accountsInTrie = make(map[common.Address]bool)
-	s.keysInTrie = make(map[KeyKey]common.Hash)
-	s.accountsSeen = make(map[common.Address][]common.Hash)
-	s.keysSeen = make(map[KeyKey][]common.Hash)
-	s.nodesForAccount = make(map[common.Hash][]byte)
-	s.nodesForKey = make(map[common.Hash][]byte)
+	//s.accountsInTrie = make(map[common.Address]bool)
+	//s.keysInTrie = make(map[KeyKey]common.Hash)
+	//s.accountsSeen = make(map[common.Address][]common.Hash)
+	//s.keysSeen = make(map[KeyKey][]common.Hash)
+	//s.nodesForAccount = make(map[common.Hash][]byte)
+	//s.nodesForKey = make(map[common.Hash][]byte)
+	// TODO: do we need to clear this??
 	s.emptys = [][]common.Address{}
 
 	// TODO: experimental
@@ -1483,7 +1486,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		log.Info("post Root hash", "r", s.trie.Hash())
 		s.logPostData(deletedAddrs, s.trie.Hash())
 		log.Error("POST LOGGING", "accoutns", len(s.accountsSeen))
-		s.clearLogData()
+		//s.clearLogData()
 		s.postCompleted = true
 		//} else {
 		//	// TODO: do we need this?
