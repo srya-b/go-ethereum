@@ -3,10 +3,13 @@ package state
 import (   
 	"fmt"
     "encoding/json"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/trie"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 /// Journal stuff
@@ -37,8 +40,7 @@ var CacheWasmS string = "CacheWasm"
 var EvictWasmS string = "EvictWasm"
 
 
-func (l LogJournalEntry) MarshalJSON() ([]byte, error) {
-    switch entry := (l.Entry).(type) {
+func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entry).(type) {
     case createObjectChange:
         d, err := entry.MarshalJSON()
         if err == nil {
@@ -451,11 +453,18 @@ func GetEmptyDeletes(emptys [][]common.Address, l [][]LogJournalEntry) map[commo
 	return finalSet
 }
 
-func PrintJournal(j [][]LogJournalEntry) {
+func PrintJournal(j []LogJournalEntry) {
+	for _, e := range j {
+		fmt.Println(e.Entry.toString())
+	}
+}
+
+func PrintJournals(j [][]LogJournalEntry) {
 	for _, journ := range j {
-		for _, e := range journ {
-			fmt.Println(e.Entry.toString())
-		}
+		PrintJournal(journ)
+		//for _, e := range journ {
+		//	fmt.Println(e.Entry.toString())
+		//}
 	}
 }
 
@@ -496,3 +505,191 @@ func GetCreatedAccounts(j [][]LogJournalEntry) map[common.Address]bool {
 	return finalSet
 }
 
+func isAccount(addr common.Address, rawNode []byte) bool {
+	test := new(types.StateAccount)
+	err := rlp.DecodeBytes(rawNode, test)
+	if err != nil {
+		log.Error("Couldn't decode state account in createObjectChange prelog", "addr", addr)
+		return false
+	}
+	return true
+}
+
+func createObjectChangeAccess(addr common.Address, trieVal []byte, accounts map[common.Address][]common.Hash, accountNodes map[common.Hash][]byte) []common.Hash {
+	pathHashes, _ := accounts[addr]
+	rawNodeHash := pathHashes[0]
+	rawNode, exists := accountNodes[rawNodeHash]
+	if !exists {
+		log.Error("account has path but no raw node", "addr", addr, "hash", rawNodeHash)
+		panic("pre log error")
+	}
+
+	if !isAccount(addr, rawNode) {
+		log.Error("Couldn't decode state account in createObjectChange prelog", "addr", addr)
+		panic("pre log eror")
+	}
+
+	if trieVal != nil {
+		// this means that this was deleted at some point in the future
+		// but we do the same thing as before
+		log.Error("Trie get of this didn't give a nil result", "addr", addr, "v", trieVal)
+		panic("prelog error")
+	}
+
+	// shouldn't do any accesses for this
+	return nil
+}
+
+func createContractChangeAccess(addr common.Address, trieVal []byte, accounts map[common.Address][]common.Hash, accountNodes map[common.Hash][]byte) []common.Hash {
+	pathHashes, _ := accounts[addr]
+	
+	if len(pathHashes) == 1 {
+		// same as createObjectChange above
+		rawNodeHash := pathHashes[0]
+		rawNode, exists := accountNodes[rawNodeHash]
+		if !exists { 
+			log.Error("createContractCahnge account path but no raw node", "addr", addr, "hash", rawNodeHash)
+			panic("pre log error")
+		} 
+
+		if !isAccount(addr, rawNode) {
+			log.Error("createContractChange couldn't decode account", "addr", addr, "hash", rawNodeHash)
+			panic("pre log error")
+		}
+
+		if trieVal != nil {
+			// this means that this was deleted at some point in the future
+			// but we do the same thing as before
+			//log.Info("Addr was deleted or is empty", "addr", addr)
+			log.Error("createContractChange trie get of this didn't give a nil result", "addr", addr, "v", trieVal)
+			panic("pre log error")
+		}
+		return nil
+	} else if len(pathHashes) == 0 {
+		log.Error("createContractChange not nill return ad no pathHashes", "addr", addr)
+		panic("pre log error")
+	} else { 
+		if trieVal == nil {
+			log.Error("createContract change v is nil but in trie", "addr", addr)
+			panic("pre log error")
+		}
+		// log these accesses
+		return copyReverse(pathHashes)
+	}
+}
+
+func getStateObjectEntryAccess(addr common.Address, accounts map[common.Address][]common.Hash, accountNodes map[common.Hash][]byte) []common.Hash {
+	pathHashes, _ := accounts[addr]
+	return copyReverse(pathHashes)
+}
+
+func getStorageEntryAccess(addr common.Address, key common.Hash, keys map[KeyKey][]common.Hash, keyNodes map[common.Hash][]byte) []common.Hash {
+	pathHashes, _ := keys[KeyKey{addr, key}]
+	return copyReverse(pathHashes)
+}
+
+// This function iterates through all of the journals in the block, and goes
+// through them in reverse order. Every key's path is stored in reverse order as
+// the order of accesses. A key whose path shares nodes that have already been
+// touched ignores those nodes and only stores the unique nodes.
+func OrderAccesses(journals [][]LogJournalEntry, root common.Hash, accounts map[common.Address][]common.Hash, accountNodes map[common.Hash][]byte, keys map[KeyKey][]common.Hash, keyNodes map[common.Hash][]byte, t *trie.ValidatorTrie) []common.Hash {
+	accesses := []common.Hash{}
+
+	for i := len(journals)-1 ; i >= 0 ; i-- {
+		journ := journals[i]
+		for j := len(journ)-1 ; j >= 0 ; j-- {
+			lentry := journ[j]
+			switch logEntry := (lentry.Entry).(type) {
+			case createObjectChange:
+				// there is no trie entry here, only the get request should log the trie
+				// here we only log the hash of this node
+				addr := logEntry.account
+				pathHashes, exists := accounts[addr]
+				if !exists || len(pathHashes) != 1 {
+					log.Error("Create change not in accounts", "addr", addr, "len", len(pathHashes))
+					panic("Pre log error")
+				}
+
+				v, _ := t.GetWithPath(addr.Bytes())
+				access := createObjectChangeAccess(addr, v, accounts, accountNodes)
+				accesses = append(accesses, access...)
+
+				log.Info("createObjectEntry", "addr", addr)
+			case createContractChange:
+				// the same as above 
+				addr := logEntry.account
+				// the account must exist and the same as above
+				_, exists := accounts[addr]
+				if !exists {
+					log.Error("create contract change doesn't exist", "addr", addr)
+					panic("pre log error")
+				}
+				
+				v, _ := t.GetWithPath(addr.Bytes())
+				access := createContractChangeAccess(addr, v, accounts, accountNodes)
+				accesses = append(accesses, access...)
+				log.Info("Create contract entry", "addr", addr)
+			case getStateObjectEntry:
+				// here we do everything and log it, this will give you a path even if the key doesn't exist
+				addr := logEntry.account
+				pathHashes, exists := accounts[addr]
+
+				if len(pathHashes) == 0 || !exists {
+					log.Error("Bad data for getStateObjectEntry", "addr", addr, "paths", len(pathHashes), "exists", exists)
+					panic("prelog error")
+				}
+				access := getStateObjectEntryAccess(addr, accounts, accountNodes)
+				accesses = append(accesses, access...)
+			case getStorageEntry:
+				// same as above but with KeyKey type
+				addr := logEntry.account
+				key := logEntry.key
+				pathHashes, exists := keys[KeyKey{addr, key}]
+				if !exists || len(pathHashes) == 0 {
+					log.Error("bad data for getStorageEntry", "addr", addr, "paths", len(pathHashes), "exists", exists)
+					panic("prelog error")
+				}
+
+				access := getStorageEntryAccess(addr, key, keys, keyNodes)
+				accesses = append(accesses, access...)
+			case storageChange:
+				// for the preLog, storage changes don't matter beyong the trie nodes needed
+				// to get the value before changing it, the only thing is if the value was 0 before
+				// if it is a new storage entry, then there should be only one thing 
+				addr := logEntry.account
+				key := logEntry.key
+				prevvalue := logEntry.prevvalue
+				newvalue := logEntry.newvalue
+
+				access := storageChangeAccess(addr, key, prevvalue, newvalue, keys, keyNodes)
+				accesses = append(accesses, access...)
+				//log.Info("storageChange")
+			}
+		}
+	}
+	return accesses
+}
+
+func storageChangeAccess(addr common.Address, key common.Hash, prevvalue common.Hash, newvalue common.Hash, keys map[KeyKey][]common.Hash, keyNodes map[common.Hash][]byte) []common.Hash {
+	var zeroVal common.Hash
+	zeroVal.SetBytes(nil)
+	if prevvalue.Cmp(zeroVal) == 0 {
+		pathHashes, _ := keys[KeyKey{addr, key}]
+		if len(pathHashes) != 1 {
+			log.Error("storage change rom nil and path isn't 1", "addr", addr, "key", key, "len", len(pathHashes))
+			panic("pre log error")
+		}
+		// in this case though, there's nothing really to report
+		return nil
+	} else {
+		// in this case, there is a get request that's already logged the whole path down
+		return nil
+	}
+}
+
+func copyReverse[T any](l []T) []T {
+	ret := make([]T, len(l))
+	copy(ret, l)
+	slices.Reverse(ret)
+	return ret
+}

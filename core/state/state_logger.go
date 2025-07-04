@@ -206,7 +206,9 @@ func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (map[common.Addr
 	target := common.HexToAddress("0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE")
 	for addr := range s.accountsSeen {
 		// get the path for this account
+		log.Info("getaccountlogs GetAccount Log call", "addr", addr)
 		res, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(addr)
+		log.Info("getaccountlogs GetAccount Log return", "addr", addr)
 		if target.Cmp(addr) == 0 {
 			log.Info("Get target account", "res", res, "paths", len(pathHashes))
 		}
@@ -379,10 +381,16 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 			rawNode := s.accountToBytes(*addr)
 			// the node has no hash so we store the key and value as the same
 			// convert it into a hashNode	
-			rawNodeHash := common.BytesToHash(rawNode)
+			//if len(rawNode) > common.HashLength {
+			//	log.Error("Doing a BytesToHash of a rawNode that is too big", "rawNode", len(rawNode))
+			//	panic("soundness error")
+			//}
+			//rawNodeHash := common.BytesToHash(rawNode)
+			rawNodeHash := trie.HashValueNode(rawNode)
 			// set it to nil because this is a new account
 			// for all accounts that don't have a path then we know it's a new one
-			accounts[*addr] = nil
+			//accounts[*addr] = nil
+			accounts[*addr] = []common.Hash{rawNodeHash}
 			accountNodes[rawNodeHash] = rawNode
 		case createContractChange:
 			// need to check if this already exists, sometimes the object is created before
@@ -394,18 +402,22 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 				log.Info("contract crearte of existing obj", "addr", *addr)
 			}
 			rawNode := s.accountToBytes(*addr)
-			rawNodeHash := common.BytesToHash(rawNode)
-			accounts[*addr] = nil
+			//rawNodeHash := common.BytesToHash(rawNode)
+			rawNodeHash := trie.HashValueNode(rawNode)
+			//accounts[*addr] = nil
+			accounts[*addr] = []common.Hash{rawNodeHash}
 			accountNodes[rawNodeHash] = rawNode
 		case getStateObjectEntry:
 			addr = logEntry.Account()
 			_, ok := accounts[*addr]
 			if !ok {
+				log.Info("Get state object entryu", "addr", *addr)
 				if target.Cmp(*addr) == 0 {
 					log.Info("Get state object entryu", "addr", *addr)
 				}
 				// we haven't seen it so we store the nodes on the path
 				res, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(*addr)
+				log.Info("Log finalize get account logged return", "addr", *addr)
 				if target.Cmp(*addr) == 0 {
 					log.Error("GetAccountLogged", "addr", *addr, "idx", idx, "res", res)
 				}
@@ -478,7 +490,9 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 				if !exist {
 					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
 				}
+				log.Info("log finalize storage entry CALL", "addr", *addr, "key", *key)
 				trieVal, pathHashes, rawNodesOnPath := obj.GetTrieStateLogged(*key)
+				log.Info("log finalize storage entry", "addr", *addr, "key", *key)
 				var testVal common.Hash
 				testVal.SetBytes(nil)
 				if trieVal.Cmp(testVal) != 0 {
@@ -563,11 +577,13 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 				if !(len(pathHashes) == 0 && len(rawNodesOnPath) == 0) {
 					panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
 				}
-				keys[keykey] = nil
-				// what is the current value
+				//keys[keykey] = nil
 				v := obj.GetState(*key)
 				rawNode := valueToLeaf(v)
-				keyNodes[v] = rawNode
+				rawNodeHash := trie.HashLeaf(rawNode)
+				keys[keykey] = []common.Hash{rawNodeHash}
+				// what is the current value
+				keyNodes[rawNodeHash] = rawNode
 			}
 		default:
 		}
