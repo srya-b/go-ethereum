@@ -19,6 +19,7 @@ package trie
 import (
 	"sync"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
 )
@@ -211,5 +212,35 @@ func (h *hasher) proofHash(original node) (collapsed, hashed node) {
 	default:
 		// Value and hash nodes don't have children, so they're left as were
 		return n, n
+	}
+}
+
+func HashValueNode(v []byte) common.Hash {
+	trimmed := common.TrimLeftZeroes(v[:])
+	if len(v) <= common.HashLength {
+		// in this case we do nothing just return this as a bytesToHash
+		return common.BytesToHash(trimmed)
+	} else {
+		h := newHasher(false)
+		defer func() {
+			returnHasherToPool(h)
+		}()
+		hash := h.hashData(trimmed[:])
+		return common.BytesToHash(hash)
+	}
+}
+
+// this function differs from the above in that it expects
+// the input to be trimmed as a leaf node would be before hashing
+func HashLeaf(v []byte) common.Hash {
+	if len(v) <= common.HashLength {
+		return common.BytesToHash(v)
+	} else {
+		h := newHasher(false)
+		defer func() {
+			returnHasherToPool(h)
+		}()
+		hash := h.hashData(v[:])
+		return common.BytesToHash(hash)
 	}
 }
