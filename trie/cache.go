@@ -51,6 +51,28 @@ func (t *ValidatorTrie) GetWithPathHashKey(hashKey []byte) ([]byte, []common.Has
 	value, pathHashes := t.getWithPath(t.Root, keybytesToHex(hashKey), 0)
 	return value, pathHashes
 }
+
+func (t *ValidatorTrie) GetStateWithHashKey(hashAddr []byte, hashKey []byte) []byte {
+	// first get the account
+	ha := common.BytesToHash(hashAddr)
+	hk := common.BytesToHash(hashKey)
+	v, _ := t.getWithPath(t.Root, keybytesToHex(hashAddr), 0)
+	if v == nil {
+		log.Error("Got a nil account", "addr", ha)
+		panic("validator trie error")
+	}
+
+	// get the key in that trie
+	storageTrie, _, exists := getStorageTrie(v, t.Nodes)
+	if exists {
+		log.Info("Account trie exists", "addr", ha)
+		// get the key
+		value, pathHashes := t.getWithPath(storageTrie, keybytesToHex(hashKey), 0)
+		log.Info("QUery in storage trie", "addr", ha, "key", hk, "paths", len(pathHashes), "value", common.BytesToHash(value))
+		return value
+	}
+	return nil
+}
 	
 
 func (t *ValidatorTrie) getWithPath(origNode node, key []byte, pos int) ([]byte, []common.Hash) {
@@ -2904,6 +2926,82 @@ func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 			//log.Info("Expanding hashNode in creating subtrie.", "hash", realHash)
 			//finalList = append([]common.Hash{realHash}, TrieFromNode(actualNode,preimages)...)
 			final = final + TrieFromNodeCount(actualNode, preimages)
+		}
+		//return finalList
+		return final
+	default:
+		panic(fmt.Sprintf("%T: invalid node: %v", n, n))
+	}
+}
+
+func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte, addr common.Hash, storage bool) []common.Hash {
+	switch n := (n).(type) {
+	case valueNode: 
+		storageRoot, _, exists := getStorageTrie(n, preimages)
+		k := PublicHexToKeybytes(key)
+		if exists {
+			// add the root to the map and recurse
+			//return []common.Hash{common.BytesToHash(k)}
+			keysInAccount := TrieFromNodeCountKeys(storageRoot, preimages, []byte{}, common.BytesToHash(k), true)
+			return keysInAccount 
+		} else {
+			if storage {
+				log.Info("Key", "addr", addr, "key", common.BytesToHash(k))
+				return []common.Hash{common.BytesToHash(k)}
+				//m := make(map[common.Hash][]common.Hash)
+				//m[addr] = []common.Hash{common.BytesToHash(k)}
+				//return m
+			} else {
+				return []common.Hash{}
+				//return make(map[common.Hash][]common.Hash)
+			}
+		}
+	case *shortNode:
+		// shortNodes are extensions or valueNodes
+		// they are usually stored as hashNodes so don't save anything here
+		switch (n.Val).(type) {
+		case *fullNode: panic("child of short node is a full node")
+		default:
+		}
+		return TrieFromNodeCountKeys(n.Val, preimages, append(key, (n.Key)...), addr, storage)
+	case *fullNode:
+		// exension nodes
+		ok := sanityCheckFullNode(n)
+		if !ok {
+			panic(fmt.Sprintf("Failed to check fullNode. node=%v", n))
+		}
+		//finalList := []common.Hash{}
+		final := []common.Hash{}
+		//final := make(map[common.Hash][]common.Hash)
+		for pos, child := range &n.Children {
+			// save all hashes from subtrie
+			if child != nil {
+				// DEBUG
+				_, ok := child.(hashNode)
+				if !ok { panic("child of full node not a hashnode") }
+				accts := TrieFromNodeCountKeys(child, preimages, append(key, byte(pos)), addr, storage)
+				final = append(final, accts...)
+				//for ha, ks := range accts {
+				//	final[ha] = ks
+				//}
+			}
+		}
+		//return finalList
+		return final
+	case hashNode:
+		// in some cases the hashNode isn't in the pre-images map so try a different one
+		realHash := common.BytesToHash(n)
+		hn := HashNode(n)
+		if hn != realHash {
+			panic(fmt.Sprintf("Hasnode hashes unequal! HashNode: %v, BytesToHash: %v, hn: %v", n, realHash, hn))
+		}
+		actualNodeRaw, exists := preimages[realHash]
+		actualNode, err := decodeNode(nil, actualNodeRaw)
+		final := []common.Hash{}
+		//final := make(map[common.Hash][]common.Hash)
+		// if it is expanded go down the path
+		if err == nil && exists {
+			final = TrieFromNodeCountKeys(actualNode, preimages, key, addr, storage)
 		}
 		//return finalList
 		return final

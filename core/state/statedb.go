@@ -1177,6 +1177,20 @@ type KeyKey struct {
 	key common.Hash
 }
 
+func (k KeyKey) Key() common.Hash {
+	return k.key
+}
+
+func ( k KeyKey) Addr() common.Address {
+	return k.addr
+}
+
+func (k KeyKey) Format(s fmt.State, c rune) {
+	k.addr.Format(s, c)
+	s.Write([]byte(", "))
+	k.key.Format(s, c)
+}
+
 func (k KeyKey) MarshalText() ([]byte, error) {
 	//return []byte(fmt.Sprintf("%s:%s", k.addr, k.key)), nil
 	b1, err := k.addr.MarshalText()
