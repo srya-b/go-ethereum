@@ -391,6 +391,53 @@ func GetCreatedAccountsHashed(j [][]LogJournalEntry) map[common.Hash]bool {
 	return out
 }
 
+func GetCreatedKeys(j [][]LogJournalEntry) map[KeyKey]bool {
+	finalSet := make(map[KeyKey]bool)
+	for _, jn := range j {
+		for _, e := range jn {
+			switch entry := (e.Entry).(type) {
+			case storageChange:
+				var zeroVal common.Hash
+				zeroVal.SetBytes(nil)
+
+				if entry.prevvalue.Cmp(zeroVal) == 0 || entry.newvalue.Cmp(zeroVal) != 0 {
+					// a storage slot went from not 0 to 0
+					log.Info("Deleted key", "addr", entry.account, "key", entry.key)
+					finalSet[KeyKey{entry.account, entry.key}] = true
+				} else {
+					log.Info("Storage sot not set", "addr", entry.account, "key", entry.key)
+				}
+			default:
+			}
+		}
+	}
+	return finalSet
+}
+
+
+func GetDeletedKeys(j [][]LogJournalEntry) map[KeyKey]bool {
+	finalSet := make(map[KeyKey]bool)
+	for _, jn := range j {
+		for _, e := range jn {
+			switch entry := (e.Entry).(type) {
+			case storageChange:
+				var zeroVal common.Hash
+				zeroVal.SetBytes(nil)
+
+				if entry.prevvalue.Cmp(zeroVal) != 0 || entry.newvalue.Cmp(zeroVal) == 0 {
+					// if the old value had something and the new one is set to 0
+					log.Info("Deleted key", "addr", entry.account, "key", entry.key)
+					finalSet[KeyKey{entry.account, entry.key}] = true
+				} else {
+					log.Info("Storage change not set to 0", "addr", entry.account, "key", entry.key)
+				}
+			default:
+			}
+		}
+	}
+	return finalSet
+}
+
 func GetDeletedAccounts(j [][]LogJournalEntry) map[common.Address]bool {
 	finalSet := make(map[common.Address]bool)
 	for _, jn := range j {
@@ -404,6 +451,63 @@ func GetDeletedAccounts(j [][]LogJournalEntry) map[common.Address]bool {
 				}
 			case selfDestructChange:
 				finalSet[entry.account] = true
+			default:
+			}
+		}
+	}
+	return finalSet
+}
+
+
+// given a journal return all the storage trie keys that were queried
+// and returned 0 and are never set. This let's us validate that our collected
+// data is capturing all keys and we can validate a transition from a prelog to
+// a post log
+func GetKeysAlwaysZero(j [][]LogJournalEntry) map[KeyKey]bool {
+	finalSet := make(map[KeyKey]bool)
+	for _, jn := range j {
+		for _, e := range jn {
+			switch entry := (e.Entry).(type) {
+			case getStorageEntry:
+				k := KeyKey{entry.account, entry.key}
+				// we want to check what the return value was
+				//if (common.Hash{}).Cmp(entry.value) == 0 {
+				if entry.value.Cmp(common.Hash{}) == 0 {
+					var zeroVal common.Hash
+					zeroVal.SetBytes(nil)
+					if entry.value.Cmp(zeroVal) != 0 {
+						panic("comparison error")
+					}
+					finalSet[k] = true
+				} else {
+					_, exists := finalSet[k]
+					if exists {
+						// this means the account went from zero to not-zero so remove it
+						delete(finalSet, k)
+					}
+				}
+			case storageChange:
+				var zeroVal common.Hash
+				zeroVal.SetBytes(nil)
+
+				k := KeyKey{entry.account, entry.key}
+				if entry.prevvalue.Cmp(zeroVal) != 0 && entry.newvalue.Cmp(zeroVal) == 0 {
+					// if the old value had something and the new one is set to 0
+					if entry.newvalue.Cmp(common.Hash{}) != 0 {
+						panic("comparison error")
+					}
+					log.Info("Deleted key", "addr", entry.account, "key", entry.key)
+					//finalSet[k] = true
+				} else {
+					// implcit in this condition is that prevvalue and newvalue can't be
+					// the same thing, therefore here it's clear that newvalue != 0
+					_, exists := finalSet[k]
+					if !exists {
+						// it's changed to zero
+						delete(finalSet, k)
+					}
+					log.Info("Storage change not set to 0", "addr", entry.account, "key", entry.key)
+				}
 			default:
 			}
 		}

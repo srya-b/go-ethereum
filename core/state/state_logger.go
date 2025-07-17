@@ -63,6 +63,36 @@ func (s *StateDB) findGetSets(addr common.Address, key common.Hash) {
 	}
 }
 
+func PublicFindGetSets(addr common.Address, key common.Hash, j [][]LogJournalEntry) {
+	for _, jn := range j {
+	//for idx, lentry := range s.journal.logEntries {
+		for idx, e := range jn {
+			//switch logEntry := (lentry.Entry).(type) {
+			switch logEntry := (e.Entry).(type) {
+			case getStorageEntry:
+				a := logEntry.account
+				k := logEntry.key
+				//if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
+				if (addr.Cmp(a) == 0) {
+					log.Info("Get target.", "idx", idx, "addr", a, "key", k, "value", logEntry.value)
+				}
+			case storageChange:
+				a := logEntry.account
+				//k := logEntry.key
+				//if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
+				if (addr.Cmp(a) == 0) {
+					//obj, exists := s.stateObjects[a]
+					//if !exists {
+					//	panic("doesn't exist")
+					//}
+					//newval := obj.GetState(k)
+					log.Info("Target entry", "idx", idx, "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", logEntry.newvalue)
+				}
+			}
+		}
+	}
+}
+
 func (s *StateDB) findGetCreates(addr common.Address) {
 	for idx, lentry := range s.journal.logEntries {
 		switch logEntry := (lentry.Entry).(type) {
@@ -116,6 +146,7 @@ func PublicFindAll(addr common.Address, j [][]LogJournalEntry) {
 				k := logEntry.key
 				_, seen := seenKeys[KeyKey{a, k}]
 				if addr.Cmp(a) == 0 {
+					log.Info("Found a match")
 					if !seen {
 						log.Info("Get storage target", "journal", jidx, "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
 						seenKeys[KeyKey{a, k}] = true
@@ -203,15 +234,11 @@ func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (map[common.Addr
 	nilAccounts := []common.Address{}
 	accounts := make(map[common.Address][]common.Hash)
 	accountNodes := make(map[common.Hash][]byte)
-	target := common.HexToAddress("0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE")
 	for addr := range s.accountsSeen {
 		// get the path for this account
-		log.Info("getaccountlogs GetAccount Log call", "addr", addr)
+		//log.Info("getaccountlogs GetAccount Log call", "addr", addr)
 		res, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(addr)
-		log.Info("getaccountlogs GetAccount Log return", "addr", addr)
-		if target.Cmp(addr) == 0 {
-			log.Info("Get target account", "res", res, "paths", len(pathHashes))
-		}
+		//log.Info("getaccountlogs GetAccount Log return", "addr", addr)
 		if err != nil {
 			log.Error("Address get account threw error", "addr", addr)
 			panic(err)
@@ -338,7 +365,6 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 
 // Finalize logger
 func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.Hash, map[common.Hash][]byte, map[KeyKey][]common.Hash, map[common.Hash][]byte) {
-	target := common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf")
 	accounts := make(map[common.Address][]common.Hash)
 	accountNodes := make(map[common.Hash][]byte)
 	keys := make(map[KeyKey][]common.Hash)
@@ -390,6 +416,10 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 			// set it to nil because this is a new account
 			// for all accounts that don't have a path then we know it's a new one
 			//accounts[*addr] = nil
+			_, ok := accounts[*addr]
+			if ok {
+				log.Info("LogFinalize: Created twice", "account", *addr)
+			}
 			accounts[*addr] = []common.Hash{rawNodeHash}
 			accountNodes[rawNodeHash] = rawNode
 		case createContractChange:
@@ -399,7 +429,7 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 			_, ok := accounts[*addr]
 			if ok {
 				// this object is created and then set as a contract
-				log.Info("contract crearte of existing obj", "addr", *addr)
+				log.Info("LogFinalize: contract crearte of existing obj", "addr", *addr)
 			}
 			rawNode := s.accountToBytes(*addr)
 			//rawNodeHash := common.BytesToHash(rawNode)
@@ -411,16 +441,9 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 			addr = logEntry.Account()
 			_, ok := accounts[*addr]
 			if !ok {
-				log.Info("Get state object entryu", "addr", *addr)
-				if target.Cmp(*addr) == 0 {
-					log.Info("Get state object entryu", "addr", *addr)
-				}
 				// we haven't seen it so we store the nodes on the path
 				res, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(*addr)
-				log.Info("Log finalize get account logged return", "addr", *addr)
-				if target.Cmp(*addr) == 0 {
-					log.Error("GetAccountLogged", "addr", *addr, "idx", idx, "res", res)
-				}
+				log.Info("LogFinalize: account access", "addr", *addr)
 				if err != nil || len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
 					// try stateObjects
 					_, ok := s.stateObjects[*addr]
@@ -490,9 +513,10 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 				if !exist {
 					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
 				}
-				log.Info("log finalize storage entry CALL", "addr", *addr, "key", *key)
+				//log.Info("log finalize storage entry CALL", "addr", *addr, "key", *key)
+				log.Info("LogFinalize: key access", "addr", *addr, "key", *key)
 				trieVal, pathHashes, rawNodesOnPath := obj.GetTrieStateLogged(*key)
-				log.Info("log finalize storage entry", "addr", *addr, "key", *key)
+				//log.Info("log finalize storage entry", "addr", *addr, "key", *key)
 				var testVal common.Hash
 				testVal.SetBytes(nil)
 				if trieVal.Cmp(testVal) != 0 {
@@ -551,21 +575,10 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 				// log this as a change
 				addr = &(logEntry.account)
 				key = &(logEntry.key)
-				if target.Cmp(*addr) == 0 {
-					log.Info("Storage change from nil", "addr", *addr, "key", *key)
-				}
 				keykey = KeyKey{*addr, *key}
 				_, ok := accounts[*addr]
 				if !ok {
 					panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
-				}
-				_, ok = keys[keykey]
-				if ok {
-					// this could have been seen before if a get was attempted for a 0 value
-					if target.Cmp(*addr) == 0 {
-						log.Error("New keykey seen with prev=nil", "addr", *addr, "key", *key)
-					}
-					//panic("New keykey is already seen!")
 				}
 				obj, exist := s.stateObjects[*addr]
 				if !exist {
@@ -578,6 +591,7 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 					panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
 				}
 				//keys[keykey] = nil
+				log.Info("LogFinalize: storage write", "addr", *addr, "key", *key, "prev", logEntry.prevvalue, "new", logEntry.newvalue)
 				v := obj.GetState(*key)
 				rawNode := valueToLeaf(v)
 				rawNodeHash := trie.HashLeaf(rawNode)
