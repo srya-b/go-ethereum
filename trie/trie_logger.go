@@ -357,7 +357,7 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 		nodes = [][]byte{trimmed}
 		return n, pathHashes, nodes, n, false, nil
 	case *shortNode:
-		log.Info("getLogged shortNode", "len(key)", len(n.Key), "key", n.Key)
+		//log.Info("getLogged shortNode", "len(key)", len(n.Key), "key", n.Key)
 		// new short node 
 		newsn := &shortNode{Key: hexToCompact(n.Key), Val: n.Val}
 		//newsn := &shortNode{Key: n.Key, Val: n.Val}
