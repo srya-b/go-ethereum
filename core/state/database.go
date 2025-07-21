@@ -74,35 +74,35 @@ type Database interface {
 	Snapshot() *snapshot.Tree
 }
 
-type OpenDatabase interface {
-	// Arbitrum: Read activated Stylus contracts
-	ActivatedAsm(target ethdb.WasmTarget, moduleHash common.Hash) (asm []byte, err error)
-	WasmStore() ethdb.KeyValueStore
-	WasmCacheTag() uint32
-	WasmTargets() []ethdb.WasmTarget
-
-	// OpenTrie opens the main account trie.
-	OpenTrie(root common.Hash) (Trie, error)
-	OpenOpenTrie(root common.Hash) (OpenTrie, error)
-
-	// OpenStorageTrie opens the storage trie of an account.
-	OpenStorageTrie(stateRoot common.Hash, address common.Address, root common.Hash, trie Trie) (Trie, error)
-
-	// CopyTrie returns an independent copy of the given trie.
-	CopyTrie(OpenTrie) Trie
-
-	// ContractCode retrieves a particular contract's code.
-	ContractCode(addr common.Address, codeHash common.Hash) ([]byte, error)
-
-	// ContractCodeSize retrieves a particular contracts code's size.
-	ContractCodeSize(addr common.Address, codeHash common.Hash) (int, error)
-
-	// DiskDB returns the underlying key-value disk database.
-	DiskDB() ethdb.KeyValueStore
-
-	// TrieDB returns the underlying trie database for managing trie nodes.
-	TrieDB() *triedb.Database
-}
+//type OpenDatabase interface {
+//	// Arbitrum: Read activated Stylus contracts
+//	ActivatedAsm(target ethdb.WasmTarget, moduleHash common.Hash) (asm []byte, err error)
+//	WasmStore() ethdb.KeyValueStore
+//	WasmCacheTag() uint32
+//	WasmTargets() []ethdb.WasmTarget
+//
+//	// OpenTrie opens the main account trie.
+//	OpenTrie(root common.Hash) (Trie, error)
+//	OpenOpenTrie(root common.Hash) (OpenTrie, error)
+//
+//	// OpenStorageTrie opens the storage trie of an account.
+//	OpenStorageTrie(stateRoot common.Hash, address common.Address, root common.Hash, trie Trie) (Trie, error)
+//
+//	// CopyTrie returns an independent copy of the given trie.
+//	CopyTrie(OpenTrie) Trie
+//
+//	// ContractCode retrieves a particular contract's code.
+//	ContractCode(addr common.Address, codeHash common.Hash) ([]byte, error)
+//
+//	// ContractCodeSize retrieves a particular contracts code's size.
+//	ContractCodeSize(addr common.Address, codeHash common.Hash) (int, error)
+//
+//	// DiskDB returns the underlying key-value disk database.
+//	DiskDB() ethdb.KeyValueStore
+//
+//	// TrieDB returns the underlying trie database for managing trie nodes.
+//	TrieDB() *triedb.Database
+//}
 
 // Trie is a Ethereum Merkle Patricia trie.
 type Trie interface {
