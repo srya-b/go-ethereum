@@ -3630,7 +3630,8 @@ func hashArbitraryNode(n node) (node) {
 	defer func() {
 		returnHasherToPool(h)
 	}()
-	hashed, _ := h.hash(n, true)
+	//hashed, _ := h.hash(n, true)
+	hashed := h.hash(n, true)
 	return hashed	
 }
 

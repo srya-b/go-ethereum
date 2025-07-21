@@ -81,6 +81,9 @@ func (n *fullNode) EncodeRLP(w io.Writer) error {
 	return eb.Flush()
 }
 
+func (n *fullNode) copy() *fullNode { copy := *n; return &copy }
+func (n *shortNode) copy() *shortNode { copy := *n; return &copy }
+
 // nodeFlag contains caching-related metadata about a node.
 type nodeFlag struct {
 	hash  hashNode // cached hash of the node (may be nil)
