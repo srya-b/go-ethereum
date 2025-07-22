@@ -18,6 +18,7 @@ import (
 func (t *StateTrie) RootString() string {
 	n, ok := t.trie.root.(*fullNode)
 	if (!ok) {
+		// TODO
 		panic("Couldn't turn root node to fullNode")
 	}
 	return n.String()
@@ -176,6 +177,8 @@ func PublicHexToKeybytes(hex []byte) []byte {
 	}
 	if len(hex)&1 != 0 {
 		panic("can't convert hex key of odd length")
+		//log.Error("PublicHexToKeybytes PANIC: can't convert hex key of odd length")
+		//return false, nil
 	}
 	key := make([]byte, len(hex)/2)
 	decodeNibbles(hex, key)

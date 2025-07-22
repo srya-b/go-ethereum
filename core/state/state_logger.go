@@ -230,7 +230,7 @@ func (s *StateDB) findAll(addr common.Address) {
 	}
 }
 
-func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (map[common.Address][]common.Hash, map[common.Hash][]byte) {
+func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (bool, map[common.Address][]common.Hash, map[common.Hash][]byte) {
 	nilAccounts := []common.Address{}
 	accounts := make(map[common.Address][]common.Hash)
 	accountNodes := make(map[common.Hash][]byte)
@@ -240,12 +240,14 @@ func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (map[common.Addr
 		res, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(addr)
 		//log.Info("getaccountlogs GetAccount Log return", "addr", addr)
 		if err != nil {
-			log.Error("Address get account threw error", "addr", addr)
-			panic(err)
+			log.Error("getAccountLogs [243] Address get account threw error", "addr", addr, "err", err)
+			return false, nil, nil
+			//panic(err)
 		}
 		if len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
-			log.Error("Address get gave no paths", "addr", addr)
-			panic("No Paths")
+			log.Error("getAccountLogs [248] Address get gave no paths", "addr", addr, "err", err)
+			return false, nil, nil
+			//panic("No Paths")
 		}
 
 		if res == nil {
@@ -254,8 +256,9 @@ func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (map[common.Addr
 			_, ok := s.stateObjectsDestruct[addr]
 			if !ok {
 				log.Error("Addr not in stateObjectsDestruct", "addr", addr)
-				log.Error("Is it in deleted addrs?", "exists", slices.Contains(deletedAddrs, addr))
-				panic("Acount returned nil but isn't self destructed")
+				log.Error("getAccountLogs [259] Is it in deleted addrs?", "exists", slices.Contains(deletedAddrs, addr), "err", err)
+				return false, nil, nil
+				//panic("Acount returned nil but isn't self destructed")
 			}
 		}
 
@@ -273,7 +276,9 @@ func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (map[common.Addr
 				err = rlp.DecodeBytes(rn, ret)
 				if err != nil {
 					log.Info("couldn't decode account", "addr", addr)
-					panic(err)
+					log.Error("getAccountLogs", "err", err)
+					return false, nil, nil
+					//panic(err)
 				}
 				hn = trie.HashData(rn)
 			} else {
@@ -284,17 +289,19 @@ func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (map[common.Addr
 			if ok {
 				// then the raw nodes should be the same
 				if bytes.Compare(rn, oldrn) != 0 {
-					panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+					//panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+					log.Error(fmt.Sprintf("getAccountLogs [293] Same hash %v has two different raw nodes.", hn))
+					return false, nil, nil
 				}
 			} else {
 				accountNodes[hn] = rn
 			}
 		}
 	}
-	return accounts, accountNodes
+	return true, accounts, accountNodes
 }
 
-func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte) {
+func (s *StateDB) getKeyLogs() (bool, map[KeyKey][]common.Hash, map[common.Hash][]byte) {
 	keys := make(map[KeyKey][]common.Hash)
 	keyNodes := make(map[common.Hash][]byte)
 	for keykey := range s.keysSeen {
@@ -316,11 +323,15 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 			// should never get no path unless the root of the account is now empty
 			if obj.data.Root.Cmp(types.EmptyRootHash) == 0 {
 				// it is correct to log nothing for this key get, maybe we just skip it altogether?
-				panic("This happened again?")
+				//panic("This happened again?")
+				log.Error("getKeyLogs [327] this happened again?")
+				return false, nil, nil
 				continue
 			} else {
 				//s.findGetSets(*addr, *key)
-				panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) gave no data", addr, key))
+				//panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) gave no data", addr, key))
+				log.Error(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) gave no data", addr, key))
+				return false, nil, nil
 			}
 		}
 
@@ -348,7 +359,9 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 			if ok {
 				if bytes.Compare(rn, oldrn) != 0 {
 					log.Info("conflict", "rn", rn, "oldrn", oldrn)
-					panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+					//panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+					log.Error(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+					return false, nil, nil
 				}
 			} else {
 				keyNodes[hn] = rn
@@ -356,7 +369,7 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 		}
 		
 	}
-	return keys, keyNodes
+	return true, keys, keyNodes
 }
 
 // in the logged data, every trie path that doesn't end in a valueNode is considered a get request that failed
@@ -364,7 +377,7 @@ func (s *StateDB) getKeyLogs() (map[KeyKey][]common.Hash, map[common.Hash][]byte
 // when a new trie path is created we know which addrs exist now, we can save that
 
 // Finalize logger
-func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.Hash, map[common.Hash][]byte, map[KeyKey][]common.Hash, map[common.Hash][]byte) {
+func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]common.Hash, map[common.Hash][]byte, map[KeyKey][]common.Hash, map[common.Hash][]byte) {
 	accounts := make(map[common.Address][]common.Hash)
 	accountNodes := make(map[common.Hash][]byte)
 	keys := make(map[KeyKey][]common.Hash)
@@ -451,7 +464,9 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 					// try reader
 					acct, err := s.reader.Account(*addr)
 					log.Info("Reader check", "acct", acct, "err", err)
-					panic("")
+					log.Error("LogFinalise [454]: FAILURE")
+					return false, nil, nil, nil, nil, nil
+					//panic("")
 				}
 				// what about getting addresses that don't exist?
 				if res != nil {
@@ -468,7 +483,9 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 						if ok {
 							// then the raw nodes should be the same
 							if bytes.Compare(rn, oldrn) != 0 {
-								panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+								//panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+								log.Error(fmt.Sprintf("LogFinalize [474] Same hash %v has two different raw nodes.", hn))
+								return false, nil, nil, nil, nil, nil
 							}
 						} else {
 							accountNodes[hn] = rn
@@ -479,15 +496,18 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 						ret := new(types.StateAccount)
 						err = rlp.DecodeBytes(rn, ret)
 						if err != nil {
-							log.Info("couldn't decode account", "idx", idx, "addr", *addr)
-							panic(err)
+							log.Error("LogFinalize [483] couldn't decode account", "idx", idx, "addr", *addr)
+							return false, nil, nil, nil, nil, nil
+							//panic(err)
 						}
 						// now save this valueNode in the map
 						hn := trie.HashData(rn)
 						oldrn, ok := accountNodes[hn]
 						if ok {
 							if bytes.Compare(rn, oldrn) != 0 {
-								panic(fmt.Sprintf("Same hash %v has two different accounts", hn))
+								//panic(fmt.Sprintf("Same hash %v has two different accounts", hn))
+								log.Error(fmt.Sprintf("LogFinalize [496] Same hash %v has two different accounts", hn))
+								return false, nil, nil, nil, nil, nil
 							}
 						} else {
 							accountNodes[hn] = rn
@@ -502,7 +522,9 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 			// ASSERT that we've sene the account before
 			_, ok := accounts[*addr]
 			if !ok {
-				panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+				//panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+				log.Error(fmt.Sprintf("LogFinalize [513] getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+				return false, nil, nil, nil, nil, nil
 			}
 		
 			//_, ok = s.keysSeen[keykey]
@@ -511,7 +533,9 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 				// get the stateObject first it should be in stateObjects
 				obj, exist := s.stateObjects[*addr]
 				if !exist {
-					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					//panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					log.Error(fmt.Sprintf("LogFinalize [524] Address %v not in stateObejcts", *addr))
+					return false, nil, nil, nil, nil, nil
 				}
 				//log.Info("log finalize storage entry CALL", "addr", *addr, "key", *key)
 				log.Info("LogFinalize: key access", "addr", *addr, "key", *key)
@@ -537,7 +561,9 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 						s.findGetSets(*addr, *key)
 						m, _ := accounts[*addr]
 						log.Error("Account information", "hashes", m)
-						panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v, idx=%v) gave no data", *addr, *key, idx))
+						//panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v, idx=%v) gave no data", *addr, *key, idx))
+						log.Error(fmt.Sprintf("LogFinalize [552] GetStorageLogged(addr=%v, key=%v, idx=%v) gave no data", *addr, *key, idx))
+						return false, nil, nil, nil, nil, nil
 					}
 				}
 				keys[keykey] = pathHashes
@@ -548,7 +574,9 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 						oldrn, ok := keyNodes[hn]
 						if ok {
 							if bytes.Compare(rn, oldrn) != 0 {
-								panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+								//panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
+								log.Error(fmt.Sprintf("LogFinalize [565] Same hash %v has two different raw nodes.", hn))
+								return false, nil, nil, nil, nil, nil
 							}
 						} else {
 							keyNodes[hn] = rn
@@ -559,7 +587,9 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 						oldrn, ok := keyNodes[hn]
 						if ok {
 							if bytes.Compare(rn, oldrn) != 0 {
-								panic(fmt.Sprintf("Same hash %v hash two different valuenodes. rn=%v, oldrn=%v", hn, rn, oldrn))
+								//panic(fmt.Sprintf("Same hash %v hash two different valuenodes. rn=%v, oldrn=%v", hn, rn, oldrn))
+								log.Error(fmt.Sprintf("LogFinalize [578] Same hash %v hash two different valuenodes. rn=%v, oldrn=%v", hn, rn, oldrn))
+								return false, nil, nil, nil, nil, nil
 							}
 						} else {
 							keyNodes[hn] = rn
@@ -578,17 +608,23 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 				keykey = KeyKey{*addr, *key}
 				_, ok := accounts[*addr]
 				if !ok {
-					panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+					//panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+					log.Error(fmt.Sprintf("LogFinalize [599] getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+					return false, nil, nil, nil, nil, nil
 				}
 				obj, exist := s.stateObjects[*addr]
 				if !exist {
-					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					//panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					log.Error(fmt.Sprintf("LogFinalize [605] Address %v not in stateObejcts", *addr))
+					return false, nil, nil, nil, nil, nil
 				}
 				// GetStateLogged is called here because there is no "miss" for the storage change from nil
 				// GetStateLogged is just to check that the get short circuits and gives no paths or nodes
 				_, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
 				if !(len(pathHashes) == 0 && len(rawNodesOnPath) == 0) {
-					panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
+					//panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
+					log.Error(fmt.Sprintf("LogFinalize [613] GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
+					return false, nil, nil, nil, nil, nil
 				}
 				//keys[keykey] = nil
 				log.Info("LogFinalize: storage write", "addr", *addr, "key", *key, "prev", logEntry.prevvalue, "new", logEntry.newvalue)
@@ -621,10 +657,12 @@ func (s *StateDB) LogFinalize() ([]common.Address, map[common.Address][]common.H
 	// we shouldn't cache these since they will apply to the next transaction as well
 	// instead, we should mark when one transaction ends and another begins (but this is just the same as 
 	if conflict(accountNodes, keyNodes) {
-		panic("Conflict in the two maps")
+		//panic("Conflict in the two maps")
+		log.Error("Conflict in the two maps")
+		return false, nil, nil, nil, nil, nil
 	}
 	
-	return emptys, accounts, accountNodes, keys, keyNodes
+	return true, emptys, accounts, accountNodes, keys, keyNodes
 }
 
 func conflict(m1 map[common.Hash][]byte, m2 map[common.Hash][]byte) bool {

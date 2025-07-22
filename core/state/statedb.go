@@ -1061,65 +1061,75 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		log.Info("Log state finalize")
 		log.Info("Root hash", "r", s.trie.Hash())
 		//s.accountsSeen, s.nodesForAccount, s.keysSeen, s.nodesForKey = s.LogFinalize()
-		emptys, accounts, accountNodes, keys, keyNodes := s.LogFinalize()
+		success, emptys, accounts, accountNodes, keys, keyNodes := s.LogFinalize()
 		log.Info("FInished logFInalize")
-		s.accountsSeen = mergeMaps(s.accountsSeen, accounts)
-		s.nodesForAccount = mergeMaps(s.nodesForAccount, accountNodes)
-		s.keysSeen = mergeMaps(s.keysSeen, keys)
-		s.nodesForKey = mergeMaps(s.nodesForKey, keyNodes)
-		s.emptys = append(s.emptys, emptys)
-		// create a trie from this data
-		rootHash, rootRaw := s.trie.RootBytes()
-		if rootRaw != nil {
-			_, err := trie.PublicDecodeNode(nil, rootRaw)
-			//debug.PrintStack()
-			if err != nil {
-				log.Error("Couldn't decode root from raw.", "hash", rootHash, "raw", rootRaw)
-				panic("Failed to decode root")
-			}
-			// merge the hashes 
-			testMap := make(map[common.Hash][]byte)
-			//for hn, raw := range s.nodesForAccount {
-			for hn, raw := range s.nodesForAccount {
-				testMap[hn] = raw
-			}
-			//for hn, raw := range s.nodesForKey {
-			for hn, raw := range s.nodesForKey {
-				testMap[hn] = raw
-			}
-			
-			// pring all the keys in the trie
-			addrKeys := []common.Hash{}
-			for addr := range s.accountsInTrie {
-				t := trie.PublicHashKey(addr.Bytes())
-				final := []byte{}
-				for _, b := range t {
-					final = append(final, byte(b))	
+
+		// if we failed at log finalize (one of the panic conditions was hit)
+		// turn off logging and don't do anything
+		if !success {
+			log.Error("LogFinalize hit a panic condition, STOPPING statedb Logging")
+			s.logState = false
+		} else {
+			s.accountsSeen = mergeMaps(s.accountsSeen, accounts)
+			s.nodesForAccount = mergeMaps(s.nodesForAccount, accountNodes)
+			s.keysSeen = mergeMaps(s.keysSeen, keys)
+			s.nodesForKey = mergeMaps(s.nodesForKey, keyNodes)
+			s.emptys = append(s.emptys, emptys)
+			// create a trie from this data
+			rootHash, rootRaw := s.trie.RootBytes()
+			if rootRaw != nil {
+				_, err := trie.PublicDecodeNode(nil, rootRaw)
+				//debug.PrintStack()
+				if err != nil {
+					log.Error("Finalise [1084] PANIC: Couldn't decode root from raw.", "hash", rootHash, "raw", rootRaw)
+					//panic("Failed to decode root")
+					s.logState = false		
+				} else {
+					// merge the hashes 
+					testMap := make(map[common.Hash][]byte)
+					//for hn, raw := range s.nodesForAccount {
+					for hn, raw := range s.nodesForAccount {
+						testMap[hn] = raw
+					}
+					//for hn, raw := range s.nodesForKey {
+					for hn, raw := range s.nodesForKey {
+						testMap[hn] = raw
+					}
+					
+					// pring all the keys in the trie
+					addrKeys := []common.Hash{}
+					for addr := range s.accountsInTrie {
+						t := trie.PublicHashKey(addr.Bytes())
+						final := []byte{}
+						for _, b := range t {
+							final = append(final, byte(b))	
+						}
+						addrKeys = append(addrKeys, common.BytesToHash(final))
+					}
+					
+					keyKeys := []common.Hash{}
+					vals := []common.Hash{}
+					for kk, val  := range s.keysInTrie {
+						t := trie.PublicHashKey(kk.key.Bytes())
+						final := []byte{}
+						for _, b := range t {
+							final = append(final, byte(b))
+						}
+						keyKeys = append(keyKeys, common.BytesToHash(final))
+						vals = append(vals, val)
+					}
+
+					//log.Info("Addr keys in trie", "key", addrKeys)
+
+					//log.Info("Keys in trie", "key", keyKeys)
+
+					//log.Info("vals in trie", "val", vals)
+
+
+					//count := trie.TrieFromNodeCountKeys(rn, testMap, []byte{})
+					//log.Info("Crated hashes", "len", count)
 				}
-				addrKeys = append(addrKeys, common.BytesToHash(final))
 			}
-			
-			keyKeys := []common.Hash{}
-			vals := []common.Hash{}
-			for kk, val  := range s.keysInTrie {
-				t := trie.PublicHashKey(kk.key.Bytes())
-				final := []byte{}
-				for _, b := range t {
-					final = append(final, byte(b))
-				}
-				keyKeys = append(keyKeys, common.BytesToHash(final))
-				vals = append(vals, val)
-			}
-
-			//log.Info("Addr keys in trie", "key", addrKeys)
-
-			//log.Info("Keys in trie", "key", keyKeys)
-
-			//log.Info("vals in trie", "val", vals)
-
-
-			//count := trie.TrieFromNodeCountKeys(rn, testMap, []byte{})
-			//log.Info("Crated hashes", "len", count)
 		}
 	}
 
@@ -1246,7 +1256,7 @@ func (s *StateDB) clearLogData() {
 }
 	
 
-func (s *StateDB) logPreData(r common.Hash) {
+func (s *StateDB) logPreData(r common.Hash) bool {
 	logEmptys := make([][]common.Address, len(s.emptys))
 	for i, e := range s.emptys {
 		logEmptys[i] = make([]common.Address, len(e))
@@ -1268,17 +1278,30 @@ func (s *StateDB) logPreData(r common.Hash) {
 		log.Error("Couldn't marshal json")
 		panic(err)
 	}
-	s.writePreData(jsonData)
+	success := s.writePreData(jsonData)
+	if !success {
+		log.Error("logPreData [1281] writePreData failed", "root", r)
+		return false
+	}
 
+	return true
 	//s.printPre(1, s.loggedJournals)
 }
 
-func (s *StateDB) logPostData(deletedAddrs []common.Address, r common.Hash) {
+func (s *StateDB) logPostData(deletedAddrs []common.Address, r common.Hash) bool {
 	// loop over accountsSeen and query from the trie
-	accounts, accountNodes := s.getAccountLogs(deletedAddrs)
+	success, accounts, accountNodes := s.getAccountLogs(deletedAddrs)
+	if !success {
+		log.Error("logPostaData: getAccountLogs PANICKED")
+		return false
+	}
 
 	// now do the keys 
-	keys, keyNodes := s.getKeyLogs()
+	success, keys, keyNodes := s.getKeyLogs()
+	if !success {
+		log.Error("logPostData: getKeyLogs PANICKED")
+		return false
+	}
 
 	data := PostLog{
 		Root: r,
@@ -1291,10 +1314,17 @@ func (s *StateDB) logPostData(deletedAddrs []common.Address, r common.Hash) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		log.Error("Couldn't marshal post data")
-		panic(err)
+		//panic(err)
+		log.Error("logPostData [1316]", "err", err)
+		return false
 	}
 
-	s.writePostData(jsonData)
+	success = s.writePostData(jsonData)
+	if !success {
+		log.Error("logPostData: rwritePostData PANICKED")
+		return false
+	}
+	return true
 	//s.printPostAndCheck(1, accounts)
 }
 
@@ -1348,7 +1378,11 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		// get the current trie's root node
 		rootHash := s.trie.Hash()
 		log.Info("pre Root hash", "r", s.trie.Hash())
-		s.logPreData(rootHash)
+		success := s.logPreData(rootHash)
+		if !success {
+			log.Error("IntermediateRoot hit a panic condition, STOPPING statedb Logging")
+			s.logState = false
+		}
 		log.Error("PRE LOGGING", "accoutns", len(s.accountsSeen))
 	}
 
@@ -1498,7 +1532,11 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		//if !s.postCompleted {
 		log.Info("logging post data", "oprefetcher nil", s.prefetcher != nil, "is witness", s.witness != nil)
 		log.Info("post Root hash", "r", s.trie.Hash())
-		s.logPostData(deletedAddrs, s.trie.Hash())
+		success := s.logPostData(deletedAddrs, s.trie.Hash())
+		if !success {
+			s.logState = false
+			log.Error("logPostData IntermediateRoot hit a panic condition, STOPPING statedb Logging")
+		}
 		log.Error("POST LOGGING", "accoutns", len(s.accountsSeen))
 		//s.clearLogData()
 		s.postCompleted = true
