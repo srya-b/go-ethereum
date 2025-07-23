@@ -120,6 +120,7 @@ type journal struct {
 	logDirties map[common.Address]int
 	txLogEntries [][]LogJournalEntry
 	logOffset int
+	loggingFailure bool
 }
 
 // newJournal creates a new initialized journal.
@@ -173,8 +174,10 @@ func (j *journal) append(entry journalEntry) {
 	// got getstate logs, only add to logEntries and increment offset
 	switch entry.(type) {
 	case getStateObjectEntry, getStorageEntry, emptyDeleteEntry:
-		j.logEntries = append(j.logEntries, LogJournalEntry{Entry: entry.deepCopy(), Reverted: false})
-		j.logOffset++
+		if !j.loggingFailure {
+			j.logEntries = append(j.logEntries, LogJournalEntry{Entry: entry.deepCopy(), Reverted: false})
+			j.logOffset++
+		}
 	default:
 		j.entries = append(j.entries, entry)
 		j.logEntries = append(j.logEntries, LogJournalEntry{Entry: entry.deepCopy(), Reverted: false})
@@ -190,11 +193,13 @@ func (j *journal) append(entry journalEntry) {
 	}
 }
 
-func (j *journal) findReverseOffset(idx int, prev int) (offset int) {
+func (j *journal) findReverseOffset(idx int, prev int) (success bool, offset int) {
 	offset = prev
 	for i := idx+prev; i >= 0; i-- {
 		if offset < 0 {
-			panic("went negative trying to change offset")
+			//panic("findReverseOffset PANIC went negative trying to change offset")
+			log.Error("findReverseOffset PANIC went negative trying to change offset")
+			return false, offset
 		}
 		// skip reverted entries and getstate entries because they don't exist in the 
 		// actual journal
@@ -204,18 +209,22 @@ func (j *journal) findReverseOffset(idx int, prev int) (offset int) {
 		if j.logEntries[i].Reverted == true || getobjectok || getstorageok || getemptyok {
 			offset--
 		} else {
-			return offset
+			return true, offset
 		}
 	}
 	// couldn't find a place where there's no reverted that means everything in the journal was reverted so the offset should actually be 0
 	if offset != 0 {
-		panic(fmt.Sprintf("Everything reverted, but offset isn't 0. Is %v", offset))
+		//panic(fmt.Sprintf("Everything reverted, but offset isn't 0. Is %v", offset))
+		log.Error(fmt.Sprintf("Everything reverted, but offset isn't 0. Is %v", offset))
+		return false, offset
 	}
 	if offset == prev {
-		panic("findReverseOffset was called on an element that isn't reverted because offset is the same.")
+		//panic("findReverseOffset was called on an element that isn't reverted because offset is the same.")
+		log.Error("findReverseOffset was called on an element that isn't reverted because offset is the same.")
+		return false, offset
 	}
 
-	return offset
+	return true, offset
 }
 
 func numGets(logEntries []LogJournalEntry) int {
@@ -249,34 +258,46 @@ func noGetReverted(logEntries []LogJournalEntry) bool {
 func (j *journal) revert(statedb *StateDB, snapshot int) {
 	offset := j.logOffset
 	for i := len(j.entries) - 1; i >= snapshot; i-- {
-		// if the current logEntry is reverted loop until to find an offset that isn't
-		_, getobjectok := (j.logEntries[i+offset].Entry).(getStateObjectEntry)
-		_, getstorageok := (j.logEntries[i+offset].Entry).(getStorageEntry)
-		_, getemptyok := (j.logEntries[i+offset].Entry).(emptyDeleteEntry)
+		if !j.loggingFailure {
+			// if the current logEntry is reverted loop until to find an offset that isn't
+			_, getobjectok := (j.logEntries[i+offset].Entry).(getStateObjectEntry)
+			_, getstorageok := (j.logEntries[i+offset].Entry).(getStorageEntry)
+			_, getemptyok := (j.logEntries[i+offset].Entry).(emptyDeleteEntry)
 
-		if j.logEntries[i+offset].Reverted == true || getobjectok || getstorageok || getemptyok {
-			offset = j.findReverseOffset(i, offset)
-			_, getobjectok = (j.logEntries[i+offset].Entry).(getStateObjectEntry)
-			_, getstorageok = (j.logEntries[i+offset].Entry).(getStorageEntry)
-			_, getemptyok = (j.logEntries[i+offset].Entry).(emptyDeleteEntry)
-			// NOTE: the below commented out conditional is no longer valid because you can reverse because of gets rather than revertes so i+offset+1 doesn't always have to be reverted.
-			//if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) || getobjectok || getstorageok {
-			if !(j.logEntries[i+offset].Reverted == false) || getobjectok || getstorageok || getemptyok {
-				log.Info("Computed", "offset", offset, "idx", i)
-				log.Info("SPecial cases", "gets", numGets(j.logEntries), "noGetReverted", noGetReverted(j.logEntries))
-				panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v, isEmptyDelete=%v", j.logEntries[i+offset].Reverted, j.logEntries[i+offset+1].Reverted, getobjectok, getstorageok, getemptyok))
+			if j.logEntries[i+offset].Reverted == true || getobjectok || getstorageok || getemptyok {
+				success, offset := j.findReverseOffset(i, offset)
+				if success {
+					_, getobjectok = (j.logEntries[i+offset].Entry).(getStateObjectEntry)
+					_, getstorageok = (j.logEntries[i+offset].Entry).(getStorageEntry)
+					_, getemptyok = (j.logEntries[i+offset].Entry).(emptyDeleteEntry)
+					// NOTE: the below commented out conditional is no longer valid because you can reverse because of gets rather than revertes so i+offset+1 doesn't always have to be reverted.
+					//if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) || getobjectok || getstorageok {
+					if !(j.logEntries[i+offset].Reverted == false) || getobjectok || getstorageok || getemptyok {
+						log.Info("Computed", "offset", offset, "idx", i)
+						log.Info("SPecial cases", "gets", numGets(j.logEntries), "noGetReverted", noGetReverted(j.logEntries))
+						//panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v, isEmptyDelete=%v", j.logEntries[i+offset].Reverted, j.logEntries[i+offset+1].Reverted, getobjectok, getstorageok, getemptyok))
+						log.Error(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v, isEmptyDelete=%v", j.logEntries[i+offset].Reverted, j.logEntries[i+offset+1].Reverted, getobjectok, getstorageok, getemptyok))
+						j.loggingFailure = true
+					}
+				} else {
+					j.loggingFailure = true	
+				}
 			}
-		}
+		} 
 
 		// Undo the changes made by the operation
 		j.entries[i].revert(statedb)
-		// in log entries just mark them reverted
-		j.logEntries[i+offset].logRevert(statedb)
 
-		if j.logEntries[i+offset].Reverted == false {
-			panic("logRevert not changed actual object")
+		if !j.loggingFailure {
+			// in log entries just mark them reverted
+			j.logEntries[i+offset].logRevert(statedb)
+			if j.logEntries[i+offset].Reverted == false {
+				//panic("logRevert not changed actual object")
+				log.Error("logRevert PANIC not changed actual object")
+				j.loggingFailure = true
+			}
+			j.logOffset++
 		}
-		j.logOffset++
 
 		// Drop any dirty tracking induced by the change
 		// NOTE: anything we need to do here? 
@@ -285,11 +306,18 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		if addr := j.entries[i].dirtied(); addr != nil {
 			j.logDirties[*addr]--
 			if j.dirties[*addr]--; j.dirties[*addr] == 0 {
-				if j.logDirties[*addr] != 0 {
-					panic(fmt.Sprintf("The real journal has all dirties 0 for addr=%v, but ours is %v", *addr, j.logDirties[*addr]))
+				if !j.loggingFailure {
+					if j.logDirties[*addr] != 0 {
+						//panic(fmt.Sprintf("The real journal has all dirties 0 for addr=%v, but ours is %v", *addr, j.logDirties[*addr]))
+						log.Error(fmt.Sprintf("The real journal has all dirties 0 for addr=%v, but ours is %v", *addr, j.logDirties[*addr]))
+						j.loggingFailure = true
+					}
 				}
 				delete(j.dirties, *addr)
-				delete(j.logDirties, *addr)
+
+				if !j.loggingFailure {
+					delete(j.logDirties, *addr)
+				}
 
 				// Revert zombieEntries tracking
 				// NOTE: we don't track zombies in our log

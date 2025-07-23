@@ -338,7 +338,7 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 	return sdb, nil
 }
 
-func (s *StateDB) StartLogger(d string, b *big.Int) {
+func (s *StateDB) StartLogger(d string, b *big.Int) bool {
 	if len(s.logDir) == 0 {
 		s.blockNo = b
 		s.logDir = d
@@ -347,18 +347,24 @@ func (s *StateDB) StartLogger(d string, b *big.Int) {
 			err = os.MkdirAll(d, 0755)
 			if err != nil {
 				log.Error("Couldn't create log directory.", "fn", d)
-				panic(err)
+				log.Error("StartLogger", "err", err)
+				//panic(err)
+				return false
 			}
 		} else if err != nil {
 			log.Error("Checking directory error", "fn", d)
-			panic(err)
+			log.Error("StartLogger", "err", err)
+			//panic(err)
+			return false
 		} else {
 			log.Info("Log directory already exists", "fn", d)
 		}
 	} else {
-		panic("Called StartLogger twice")
+		log.Error("Called StartLogger twice")
+		return false
 	}
 	s.logState = true
+	return true
 }
 
 func (s *StateDB) HasLogger() bool {
@@ -1276,7 +1282,9 @@ func (s *StateDB) logPreData(r common.Hash) bool {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		log.Error("Couldn't marshal json")
-		panic(err)
+		log.Error("logPreData", "err", err)
+		//panic(err)
+		return false
 	}
 	success := s.writePreData(jsonData)
 	if !success {
