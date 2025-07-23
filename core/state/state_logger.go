@@ -318,7 +318,12 @@ func (s *StateDB) getKeyLogs() (bool, map[KeyKey][]common.Hash, map[common.Hash]
 			continue
 		}
 
-		_, pathHashes, rawNodesOnPath := obj.GetTrieStateLoggedPostUpdate(key)
+		success, _, pathHashes, rawNodesOnPath := obj.GetTrieStateLoggedPostUpdate(key)
+		if !success {
+			log.Error("getKeyLogs: GetTrieStateLoggedPostUpdate PANIC")
+			return false, nil, nil
+		}
+
 		if len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
 			// should never get no path unless the root of the account is now empty
 			if obj.data.Root.Cmp(types.EmptyRootHash) == 0 {
@@ -539,7 +544,10 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 				}
 				//log.Info("log finalize storage entry CALL", "addr", *addr, "key", *key)
 				log.Info("LogFinalize: key access", "addr", *addr, "key", *key)
-				trieVal, pathHashes, rawNodesOnPath := obj.GetTrieStateLogged(*key)
+				success, trieVal, pathHashes, rawNodesOnPath := obj.GetTrieStateLogged(*key)
+				if !success {
+					return false, nil, nil, nil, nil, nil
+				}
 				//log.Info("log finalize storage entry", "addr", *addr, "key", *key)
 				var testVal common.Hash
 				testVal.SetBytes(nil)
@@ -620,7 +628,12 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 				}
 				// GetStateLogged is called here because there is no "miss" for the storage change from nil
 				// GetStateLogged is just to check that the get short circuits and gives no paths or nodes
-				_, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
+				success, _, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
+				if !success {
+					log.Error("LogFinalize: GetStateLogged PANIC")
+					return false, nil, nil, nil, nil, nil
+				}
+
 				if !(len(pathHashes) == 0 && len(rawNodesOnPath) == 0) {
 					//panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
 					log.Error(fmt.Sprintf("LogFinalize [613] GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))

@@ -10,22 +10,26 @@ import (
     "github.com/ethereum/go-ethereum/log"
 )
 
-func (s *StateDB) preFn(n int) string {
+func (s *StateDB) preFn(n int) (bool, string) {
 	if len(s.logDir) == 0 {
-		panic("Log dir not set")
+		//panic("Log dir not set")
+		log.Error("Log dir not set")
+		return false, ""
 	}
 	//log.Info("File name", "logDir", s.logDir, "blockNo", s.blockNo, "n", n)
 	//log.Info("Completed", "fmt", fmt.Sprintf("%s/predata-%v-%d.json", s.logDir, s.blockNo, n))
-	return fmt.Sprintf("%s/predata-%v-%d.json", s.logDir, s.blockNo, n)
+	return true, fmt.Sprintf("%s/predata-%v-%d.json", s.logDir, s.blockNo, n)
 }
 
-func (s *StateDB) postFn(n int) string {
+func (s *StateDB) postFn(n int) (bool, string) {
 	if len(s.logDir) == 0 {
-		panic("Log dir not set")
+		//panic("Log dir not set")
+		log.Error("Log dir not set")
+		return false, ""
 	}
 	//log.Info("File name", "logDir", s.logDir, "blockNo", s.blockNo, "n", n)
 	//log.Info("Completed", "fmt", fmt.Sprintf("%s/postdata-%v-%d.json", s.logDir, s.blockNo, n))
-	return fmt.Sprintf("%s/postdata-%v-%d.json", s.logDir, s.blockNo, n)
+	return true, fmt.Sprintf("%s/postdata-%v-%d.json", s.logDir, s.blockNo, n)
 }
 
 func createAndOpenFile(fn string) (bool, *os.File) {
@@ -41,7 +45,13 @@ func createAndOpenFile(fn string) (bool, *os.File) {
 func (s *StateDB) writePreData(data []byte) bool {
     s.numPre++
 	//log.Info("WRITE PRE DATA", "fn", s.preFn(s.numPre))
-    success, f := createAndOpenFile(s.preFn(s.numPre))
+	success, fn := s.preFn(s.numPre)
+	if !success {
+		log.Error("writePreData failure")
+		return false
+	}
+
+    success, f := createAndOpenFile(fn)
 	if !success {
 		log.Error("writepredata failed")
 		return false
@@ -50,7 +60,7 @@ func (s *StateDB) writePreData(data []byte) bool {
     defer f.Close()
 	_, err := f.Write(data)
 	if err != nil {
-		log.Error("File write error", "fn", s.preFn(s.numPre), "err", err)
+		log.Error("File write error", "fn", fn, "err", err)
 		//panic(err)
 		return false
 	}
@@ -59,8 +69,14 @@ func (s *StateDB) writePreData(data []byte) bool {
 
 func (s *StateDB) writePostData(data []byte) bool {
     s.numPost++
-	log.Info("WRITE POST DATA", "dn", s.postFn(s.numPost))
-    success, f := createAndOpenFile(s.postFn(s.numPost))
+	success, fn := s.postFn(s.numPost)
+	if !success {
+		log.Error("write post Data faile")
+		return false
+	}
+
+	log.Info("WRITE POST DATA", "dn", fn)
+    success, f := createAndOpenFile(fn)
 	if !success {
 		log.Error("write post data failed")
 		return false
@@ -69,7 +85,7 @@ func (s *StateDB) writePostData(data []byte) bool {
     defer f.Close()
     _, err := f.Write(data)
     if err != nil {
-		log.Error("File write failure post data", "fn", s.postFn(s.numPost), "err", err)
+		log.Error("File write failure post data", "fn", fn, "err", err)
         //panic(err)
 		return false
     }
@@ -78,13 +94,14 @@ func (s *StateDB) writePostData(data []byte) bool {
 
 func (s *StateDB) readPreData(n int) []byte {
     if s.numPre > 0 && n <= s.numPre {
-        f, err := os.Open(s.preFn(n))
+		_, fn := s.preFn(n)
+        f, err := os.Open(fn)
         if err != nil {
             panic(err)
         }
         defer f.Close()
 
-        content, err := ioutil.ReadFile(s.preFn(n))
+        content, err := ioutil.ReadFile(fn)
         if err != nil {
             panic(err)
         }
@@ -96,13 +113,14 @@ func (s *StateDB) readPreData(n int) []byte {
 
 func (s *StateDB) readPostData(n int) []byte {
     if s.numPost > 0 && n <= s.numPost {
-        f, err := os.Open(s.postFn(n))
+		_, fn := s.postFn(n)
+        f, err := os.Open(fn)
         if err != nil {
             panic(err)
         }
         defer f.Close()
 
-        content, err := ioutil.ReadFile(s.postFn(n))
+        content, err := ioutil.ReadFile(fn)
         if err != nil {
             panic(err)
         }

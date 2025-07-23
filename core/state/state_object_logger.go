@@ -60,33 +60,37 @@ func (s *stateObject) getTrieCustom() (Trie, error) {
 	return s.trie, nil
 }
 
-func (s *stateObject) GetStateLogged(key common.Hash) (common.Hash, []common.Hash, [][]byte) {
-	value, _, pathHashes, rawNodesOnPath, _ := s.getStateLogged(key)
-	return value, pathHashes, rawNodesOnPath
+func (s *stateObject) GetStateLogged(key common.Hash) (bool, common.Hash, []common.Hash, [][]byte) {
+	success, value, _, pathHashes, rawNodesOnPath, _ := s.getStateLogged(key)
+	return success, value, pathHashes, rawNodesOnPath
 }
 
 // getState retrieves a value from the account storage trie and also returns if
 // the slot is already dirty or not.
-func (s *stateObject) getStateLogged(key common.Hash) (common.Hash, common.Hash, []common.Hash, [][]byte, bool) {
+func (s *stateObject) getStateLogged(key common.Hash) (bool, common.Hash, common.Hash, []common.Hash, [][]byte, bool) {
 	// If we have a dirty value for this state entry, return it
     // if the entry is dirty, then we return this only and no trie accesses are done.
     // The function calling this should interpret this as a live access because no
     // path information is given
-    storageHash, pathHashes, rawNodesOnPath := s.GetCommittedStateLogged(key)
+    success, storageHash, pathHashes, rawNodesOnPath := s.GetCommittedStateLogged(key)
+    if !success {
+        return false, common.Hash{}, common.Hash{}, nil, nil, true
+    }
 	value, dirty := s.dirtyStorage[key]
 	if dirty {
         //log.Info("getState dirty", "value", value, "key", key)
-		return value, storageHash, nil, nil, true
+		return true, value, storageHash, nil, nil, true
 	}
 	// Otherwise return the entry's original value
-    //storageHash, pathHashes, rawNodesOnPath := s.GetCommittedStateLogged(key)
+    //storageHash, pathHashes, rawNodesOnPath := s.true, GetCommittedStateLogged(key)
     //log.Info("getState return", "key", key, "value", storageHash, "paths", len(pathHashes), "raw", len(rawNodesOnPath))
-	return storageHash, storageHash, pathHashes, rawNodesOnPath, false
+	return true, storageHash, storageHash, pathHashes, rawNodesOnPath, false
 }
 
-func (s *stateObject) GetTrieStateLogged(key common.Hash) (common.Hash, []common.Hash, [][]byte) {
+//func (s *stateObject) GetTrieStateLogged(key common.Hash) (common.Hash, []common.Hash, [][]byte) {
+func (s *stateObject) GetTrieStateLogged(key common.Hash) (bool, common.Hash, []common.Hash, [][]byte) {
 	if _, destructed := s.db.stateObjectsDestruct[s.address]; destructed {
-		return common.Hash{}, nil, nil
+		return true, common.Hash{}, nil, nil
 	}
 	var (
 		//enc   []byte
@@ -105,9 +109,10 @@ func (s *stateObject) GetTrieStateLogged(key common.Hash) (common.Hash, []common
 	    	if err != nil {
                 log.Error("GetCommittedState getTrie error", "addr", s.address, "key", key, "root", s.data.Root) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
                 log.Info("Error", "e", err)
-                panic(err)
-	    		s.db.setError(err)
-	    		return common.Hash{}, nil, nil
+                //panic(err)
+	    		//s.db.setError(err)
+                return false, common.Hash{}, nil, nil
+	    		//return common.Hash{}, nil, nil
 	    	}
 	    }
     } else {
@@ -119,18 +124,19 @@ func (s *stateObject) GetTrieStateLogged(key common.Hash) (common.Hash, []common
 
 	if err != nil {
         log.Info("[trielogged] GetTrieState getstorageerror", "addr", s.address, "key", key, "root", s.data.Root) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
-        panic(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
-		s.db.setError(err)
-		return common.Hash{}, nil, nil
+        //panic(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
+        log.Error(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
+		//s.db.setError(err)
+		return false, common.Hash{}, nil, nil
 	}
 
 	value.SetBytes(val[:])
-	return value, pathHashes, rawNodesOnPath
+	return true, value, pathHashes, rawNodesOnPath
 }
 
-func (s *stateObject) GetTrieStateLoggedPostUpdate(key common.Hash) (common.Hash, []common.Hash, [][]byte) {
+func (s *stateObject) GetTrieStateLoggedPostUpdate(key common.Hash) (bool, common.Hash, []common.Hash, [][]byte) {
 	if _, destructed := s.db.stateObjectsDestruct[s.address]; destructed {
-		return common.Hash{}, nil, nil
+		return true, common.Hash{}, nil, nil
 	}
 	var (
 		//enc   []byte
@@ -149,9 +155,9 @@ func (s *stateObject) GetTrieStateLoggedPostUpdate(key common.Hash) (common.Hash
 	    	if err != nil {
                 log.Info("[post] GetTrieState getTrie error", "addr", s.address, "key", key, "root", s.data.Root)
                 log.Info("Error", "e", err)
-                panic(err)
-	    		s.db.setError(err)
-	    		return common.Hash{}, nil, nil
+                //panic(err)
+	    		//s.db.setError(err)
+	    		return false, common.Hash{}, nil, nil
 	    	}
 	    }
     } else {
@@ -162,30 +168,31 @@ func (s *stateObject) GetTrieStateLoggedPostUpdate(key common.Hash) (common.Hash
 
 	if err != nil {
         log.Info("[post] GetTrieState getstorageerror", "addr", s.address, "key", key, "root", s.data.Root)
-        panic(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
-		s.db.setError(err)
-		return common.Hash{}, nil, nil
+        //panic(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
+        log.Error(fmt.Sprintf("Err on get addr=%v, key=%v", s.address, key))
+		//s.db.setError(err)
+		return false, common.Hash{}, nil, nil
 	}
 	value.SetBytes(val[:])
 	//s.originStorage[key] = value
-	return value, pathHashes, rawNodesOnPath
+	return true, value, pathHashes, rawNodesOnPath
 }
 
 // GetCommittedState retrieves a value from the committed account storage trie.
 // TODO: rebase
-func (s *stateObject) GetCommittedStateLogged(key common.Hash) (common.Hash, []common.Hash, [][]byte) {
+func (s *stateObject) GetCommittedStateLogged(key common.Hash) (bool, common.Hash, []common.Hash, [][]byte) {
 	// If we have a pending write or clean cached, return that
     // NOTE: being in pending means we've already seen this key, and it was "finalised"
     // and it was moved from dirty to pending but not committed so don't need anything
     // extra here
 	if value, pending := s.pendingStorage[key]; pending {
-		return value, nil, nil
+		return true, value, nil, nil
 	}
     // NOTE: this means that it was read from the trie once and is unchanged
     // so we already have the trie path, don't need to save it again we can look
     // it up in previous data
 	if value, cached := s.originStorage[key]; cached {
-		return value, nil, nil
+		return true, value, nil, nil
 	}
 	// If the object was destructed in *this* block (and potentially resurrected),
 	// the storage has been cleared out, and we should *not* consult the previous
@@ -197,15 +204,16 @@ func (s *stateObject) GetCommittedStateLogged(key common.Hash) (common.Hash, []c
     // TODO: what to do here
 	if _, destructed := s.db.stateObjectsDestruct[s.address]; destructed {
         //s.originStorage[key] = common.Hash{}
-		return common.Hash{}, nil, nil
+		return true, common.Hash{}, nil, nil
 	}
     s.db.StorageLoaded++
 	start := time.Now()
     value, pathHashes, rawNodesOnPath, err := s.db.reader.StorageFromTrie(s.address, key)
 	if err != nil {
-        panic(err)
-		s.db.setError(err)
-		return common.Hash{}, nil, nil
+        //panic(err)
+		//s.db.setError(err)
+        log.Error("GetCommittedState PANIC", "err", err)
+		return false, common.Hash{}, nil, nil
 	}
 	s.db.StorageReads += time.Since(start)
     if s.db.prefetcher != nil && s.data.Root != types.EmptyRootHash {
@@ -214,7 +222,7 @@ func (s *stateObject) GetCommittedStateLogged(key common.Hash) (common.Hash, []c
            }
     }
 	s.originStorage[key] = value
-    return value, pathHashes, rawNodesOnPath
+    return true, value, pathHashes, rawNodesOnPath
 }
 
 // prior to SetState being called, GetState was first called so we already logged the path
@@ -223,24 +231,29 @@ func (s *stateObject) GetCommittedStateLogged(key common.Hash) (common.Hash, []c
 // and the raw valueNode.
 // TODO: the caller should asser that the prevHash received is in the current dictionary
 // TODO: rebase
-func (s *stateObject) SetStateLogged(key, value common.Hash)  (common.Hash, []common.Hash, [][]byte) {
-	// If the new value is the same as old, don't set. Otherwise, track only the
-	// dirty changes, supporting reverting all of it back to no change.
-    // we only care to have these variables to assert that they are nil if dirty
-	prev, origin, pathHashes, rawNodesOnPath, _ := s.getStateLogged(key)
-	if prev == value {
-        // in a call to SetStateLogged, we've only called GetState on the accout not in the stateobject
-        // TODO: if prev == value == nil: nothing is happening
-        return prev, pathHashes, rawNodesOnPath
-        // TODO: do we say that it's dirty?
-	}
-
-    // setState doesn't do anything but update the live storage, nothing special to be done
-    s.db.journal.storageChange(s.address, key, prev, origin, value)
-	s.setState(key, value, origin)
-    return prev, pathHashes, rawNodesOnPath
-	//return types.EmptyCodeHash, types.EmptyCodeHash, nil
-}
+//func (s *stateObject) SetStateLogged(key, value common.Hash)  (bool, common.Hash, []common.Hash, [][]byte) {
+//	// If the new value is the same as old, don't set. Otherwise, track only the
+//	// dirty changes, supporting reverting all of it back to no change.
+//    // we only care to have these variables to assert that they are nil if dirty
+//	success, prev, origin, pathHashes, rawNodesOnPath, _ := s.getStateLogged(key)
+//    if !success {
+//        log.Error("SetStateLogged: getStateLogged PANIC")
+//        return false, nil, nil, nil
+//    }
+//        
+//	if prev == value {
+//        // in a call to SetStateLogged, we've only called GetState on the accout not in the stateobject
+//        // TODO: if prev == value == nil: nothing is happening
+//        return prev, pathHashes, rawNodesOnPath
+//        // TODO: do we say that it's dirty?
+//	}
+//
+//    // setState doesn't do anything but update the live storage, nothing special to be done
+//    s.db.journal.storageChange(s.address, key, prev, origin, value)
+//	s.setState(key, value, origin)
+//    return true, prev, pathHashes, rawNodesOnPath
+//	//return types.EmptyCodeHash, types.EmptyCodeHash, nil
+//}
 
 // SetBalance sets the balance for the object, and returns the previous balance.
 //func (s *stateObject) AddBalanceLogged(amount *uint256.Int, reason tracing.BalanceChangeReason) {

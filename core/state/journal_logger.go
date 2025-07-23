@@ -49,7 +49,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
     case createZombieChange:
         d, err := entry.MarshalJSON()
@@ -59,7 +60,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
     case createContractChange:
         d, err := entry.MarshalJSON()
@@ -69,7 +71,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case selfDestructChange:
@@ -80,7 +83,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case balanceChange:
@@ -91,7 +95,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case nonceChange:
@@ -102,7 +107,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case storageChange:
@@ -113,7 +119,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case codeChange:
@@ -124,7 +131,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case refundChange:
@@ -135,7 +143,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case addLogChange:
@@ -146,7 +155,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case touchChange:
@@ -157,7 +167,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case accessListAddAccountChange:
@@ -168,7 +179,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case accessListAddSlotChange:
@@ -179,7 +191,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case transientStorageChange:
@@ -190,7 +203,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case getStateObjectEntry:
@@ -201,7 +215,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case getStorageEntry:
@@ -212,7 +227,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case wasmActivation:
@@ -223,7 +239,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case CacheWasm:
@@ -234,7 +251,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     case EvictWasm:
@@ -245,7 +263,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
                 Data: d,
             })
         } else {
-            panic(err)
+            //panic(err)
+			return nil, err
         }
         return entry.MarshalJSON()
     default:
@@ -256,7 +275,8 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
 func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
     var out generic
     if err := json.Unmarshal(b, &out); err != nil {
-        panic(err)
+        //panic(err)
+		return err
     }
 
     //switch entry := (l.Entry).(type) {
@@ -264,115 +284,134 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
     case createObjectChangeS:
         var res createObjectChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res	
     case createZombieChangeS:
         var res createZombieChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case createContractChangeS:
         var res createContractChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case selfDestructChangeS:
         var res selfDestructChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case balanceChangeS:
         var res balanceChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case nonceChangeS:
         var res nonceChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case storageChangeS:
         var res storageChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case codeChangeS:
         var res codeChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case refundChangeS:
         var res refundChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case addLogChangeS:
         var res addLogChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case touchChangeS:
         var res touchChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case accessListAddAccountChangeS:
         var res accessListAddAccountChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case accessListAddSlotChangeS:
         var res accessListAddSlotChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case transientStorageChangeS:
         var res transientStorageChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case getStateObjectEntryS:
         var res getStateObjectEntry
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case getStorageEntryS:
         var res getStorageEntry
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case wasmActivationS:
         var res wasmActivation
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case CacheWasmS:
         var res CacheWasm
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     case EvictWasmS:
         var res EvictWasm
         if err := res.UnmarshalJSON(out.Data); err != nil {
-            panic(err)
+            //panic(err)
+			return err
         }
         l.Entry = res
     default:
