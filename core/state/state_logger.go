@@ -12,13 +12,15 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-func (s *StateDB) accountToBytes(addr common.Address) []byte {
+func (s *StateDB) accountToBytes(addr common.Address) (bool, []byte) {
 	obj, exist := s.stateObjects[addr]
 	if !exist {
 		s.findGetCreates(addr)
 		panic(fmt.Sprintf("Called accountToEncodeNode with address not in stateObjects: %v", addr))
+		//log.Error(fmt.Sprintf("Called accountToEncodeNode with address not in stateObjects: %v", addr))
+		//return false, nil
 	}
-	return stateObjectToBytes(obj)
+	return true, stateObjectToBytes(obj)
 }
 
 func (s *StateDB) findStorageChangeInJournal(addr common.Address, key common.Hash) {
@@ -413,6 +415,7 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 		}
 	}
 
+	//createdAndDeleted := map[common.Address]bool
 
 	for idx, lentry := range s.journal.logEntries {
 		var addr *common.Address
@@ -422,7 +425,7 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 		case createObjectChange:
 			// this is a new stateObject so log the hash the value node representation of the state
 			addr = &(logEntry.account)
-			rawNode := s.accountToBytes(*addr)
+			_, rawNode := s.accountToBytes(*addr)
 			// the node has no hash so we store the key and value as the same
 			// convert it into a hashNode	
 			//if len(rawNode) > common.HashLength {
@@ -449,7 +452,22 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 				// this object is created and then set as a contract
 				log.Info("LogFinalize: contract crearte of existing obj", "addr", *addr)
 			}
-			rawNode := s.accountToBytes(*addr)
+			_, rawNode := s.accountToBytes(*addr)
+			//if !found {
+			//	log.Info("createContractChange: account not in stateObjects means it must have been deleted in the same transaction or the same block after this event.", "addr", *addr)
+			//	// keep an eye on this and wait for a delete to happen
+			//	prev, ok := createdAndDeleted[*addr]
+			//	if ok {
+			//		// should be false, should delete before another create
+			//		log.Error("Account was already seen as created", "addr", *addr)
+			//		if prev {
+			//			log.Error("this thing was prev created sna created again without a delete", "addr", *addr)
+			//			return false, nil, nil, nil, nil, nil
+			//		}
+			//	}
+			//	createdAndDeleted[*addr] = true
+			//	continue
+			//}
 			//rawNodeHash := common.BytesToHash(rawNode)
 			rawNodeHash := trie.HashValueNode(rawNode)
 			//accounts[*addr] = nil

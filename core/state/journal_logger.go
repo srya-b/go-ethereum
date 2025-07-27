@@ -17,6 +17,7 @@ import (
 type generic struct {
     Type string `json:"type"`
     Data json.RawMessage `json:"data"`
+	Reverted bool
 }
 
 var createObjectChangeS string = "createObjectChange"
@@ -47,6 +48,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: createObjectChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -58,6 +60,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: createZombieChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -69,6 +72,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: createContractChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -81,6 +85,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: selfDestructChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -93,6 +98,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: balanceChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -105,6 +111,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: nonceChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -117,6 +124,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: storageChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -129,6 +137,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: codeChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -141,6 +150,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: refundChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -153,6 +163,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: addLogChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -165,6 +176,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: touchChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -177,6 +189,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: accessListAddAccountChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -189,6 +202,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: accessListAddSlotChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -201,6 +215,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: transientStorageChangeS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -213,6 +228,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: getStateObjectEntryS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -225,6 +241,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: getStorageEntryS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -237,6 +254,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: wasmActivationS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -249,6 +267,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: CacheWasmS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -261,6 +280,7 @@ func (l LogJournalEntry) MarshalJSON() ([]byte, error) { switch entry := (l.Entr
             return json.Marshal(&generic{
                 Type: EvictWasmS,
                 Data: d,
+				Reverted: l.Reverted,
             })
         } else {
             //panic(err)
@@ -288,6 +308,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res	
+		l.Reverted = out.Reverted
     case createZombieChangeS:
         var res createZombieChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -295,6 +316,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case createContractChangeS:
         var res createContractChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -302,6 +324,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case selfDestructChangeS:
         var res selfDestructChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -309,6 +332,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case balanceChangeS:
         var res balanceChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -316,6 +340,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case nonceChangeS:
         var res nonceChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -323,6 +348,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case storageChangeS:
         var res storageChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -330,6 +356,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case codeChangeS:
         var res codeChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -337,6 +364,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case refundChangeS:
         var res refundChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -344,6 +372,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case addLogChangeS:
         var res addLogChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -351,6 +380,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case touchChangeS:
         var res touchChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -358,6 +388,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case accessListAddAccountChangeS:
         var res accessListAddAccountChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -365,6 +396,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case accessListAddSlotChangeS:
         var res accessListAddSlotChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -372,6 +404,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case transientStorageChangeS:
         var res transientStorageChange
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -379,6 +412,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case getStateObjectEntryS:
         var res getStateObjectEntry
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -386,6 +420,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case getStorageEntryS:
         var res getStorageEntry
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -393,6 +428,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case wasmActivationS:
         var res wasmActivation
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -400,6 +436,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case CacheWasmS:
         var res CacheWasm
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -407,6 +444,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     case EvictWasmS:
         var res EvictWasm
         if err := res.UnmarshalJSON(out.Data); err != nil {
@@ -414,6 +452,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
 			return err
         }
         l.Entry = res
+		l.Reverted = out.Reverted
     default:
         return nil
     }
