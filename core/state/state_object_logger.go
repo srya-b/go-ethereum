@@ -100,7 +100,7 @@ func (s *stateObject) GetTrieStateLogged(key common.Hash) (bool, common.Hash, []
 
     var tr Trie
     if s.trie == nil {
-        log.Info("Trie to get prefetched trie")
+        //log.Info("Trie to get prefetched trie")
 	    tr = s.getPrefetchedTrie()
 	    if tr == nil {
 	    	// Fetcher not running or empty trie, fallback to the database trie
@@ -118,9 +118,9 @@ func (s *stateObject) GetTrieStateLogged(key common.Hash) (bool, common.Hash, []
     } else {
         tr = s.trie
     }
-    log.Info("Get storage logged")
+    //log.Info("Get storage logged")
 	val, pathHashes, rawNodesOnPath, err := tr.GetStorageLogged(s.address, key.Bytes())
-    log.Info("Return")
+    //log.Info("Return")
 
 	if err != nil {
         log.Info("[trielogged] GetTrieState getstorageerror", "addr", s.address, "key", key, "root", s.data.Root) //"paths", len(pathHashes), "raw", len(rawNodesOnPath))
