@@ -425,6 +425,7 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 		case createObjectChange:
 			// this is a new stateObject so log the hash the value node representation of the state
 			addr = &(logEntry.account)
+			log.Info("Is this marked as reverted??", "addr", *addr, "reverted", lentry.Reverted)
 			_, rawNode := s.accountToBytes(*addr)
 			// the node has no hash so we store the key and value as the same
 			// convert it into a hashNode	
