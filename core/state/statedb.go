@@ -324,7 +324,7 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 		accountsInTrie:	      make(map[common.Address]bool),
 		keysInTrie:			  make(map[KeyKey]common.Hash),
 		emptys:				  [][]common.Address{},
-		journal:              newJournal(),
+		journal:              newJournal(false),
 		accessList:           newAccessList(),
 		transientStorage:     newTransientStorage(),
 		logState:			  false,
@@ -363,6 +363,13 @@ func (s *StateDB) StartLogger(d string, b *big.Int) bool {
 		log.Error("Called StartLogger twice")
 		return false
 	}
+
+	if len(s.journal.entries) != 0 {
+		panic("not empty journal yet weird")
+	}
+
+	s.journal = newJournal(true)
+
 	s.logState = true
 	return true
 }
@@ -1088,7 +1095,7 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 				//debug.PrintStack()
 				if err != nil {
 					log.Error("Finalise [1084] PANIC: Couldn't decode root from raw.", "hash", rootHash, "raw", rootRaw)
-					//panic("Failed to decode root")
+					panic("Failed to decode root")
 					s.logState = false		
 				} else {
 					// merge the hashes 
@@ -1597,7 +1604,7 @@ func (s *StateDB) clearJournalAndRefund() {
 	s.loggedJournals = append(s.loggedJournals, s.journal.logEntries)
 	s.loggedDirties = append(s.loggedDirties, s.journal.logDirties)
 	s.loggedOffsets = append(s.loggedOffsets, s.journal.logOffset)
-	s.journal = newJournal()
+	s.journal = newJournal(s.logState)
 }
 
 // fastDeleteStorage is the function that efficiently deletes the storage trie
