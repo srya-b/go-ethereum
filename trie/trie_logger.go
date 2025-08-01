@@ -362,7 +362,16 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 	case *shortNode:
 		//log.Info("getLogged shortNode", "len(key)", len(n.Key), "key", n.Key)
 		// new short node 
-		newsn := &shortNode{Key: hexToCompact(n.Key), Val: n.Val}
+		var newVal node
+		switch vtype := (n.Val).(type) {
+		case *fullNode, valueNode:
+			newVal = HashNodeAsHashNode(n.Val)
+		case hashNode:
+			newVal = n.Val
+		default:
+			panic(fmt.Sprintf("short node child can't be anything else: %T", vtype))
+		}
+		newsn := &shortNode{Key: hexToCompact(n.Key), Val: newVal}
 		//newsn := &shortNode{Key: n.Key, Val: n.Val}
 		newrawn, err := rlp.EncodeToBytes(newsn)
 		//log.Info("Both hashes", "n", HashNode(n), "newn", HashNode(newsn))
@@ -373,6 +382,7 @@ func (t *Trie) getLogged(origNode node, key []byte, pos int) (value []byte, path
 		_, err = PublicDecodeNode(nil, newrawn)
 		if err != nil {
 			log.Error("failed to decode encoded shortNode", "rawn", fmt.Sprintf("%x", newrawn), "n", n)
+			panic(err)
 		}
 		//log.Info("testn", "n", testn)
 
