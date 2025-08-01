@@ -635,15 +635,21 @@ func GetEmptyDeletes(emptys [][]common.Address, l [][]LogJournalEntry) map[commo
 	return finalSet
 }
 
-func PrintJournal(j []LogJournalEntry) {
+func PrintLogJournal(j []LogJournalEntry) {
 	for _, e := range j {
-		fmt.Println(e.Entry.toString())
+		fmt.Println(e.toString())
 	}
 }
 
-func PrintJournals(j [][]LogJournalEntry) {
+func PrintJournal(j []journalEntry) {
+	for _, e := range j {
+		fmt.Println(e.toString())
+	}
+}
+
+func PrintLogJournals(j [][]LogJournalEntry) {
 	for _, journ := range j {
-		PrintJournal(journ)
+		PrintLogJournal(journ)
 		//for _, e := range journ {
 		//	fmt.Println(e.Entry.toString())
 		//}

@@ -24,6 +24,7 @@ import (
 	"sort"
 	"bytes"
 	"encoding/json"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common"
@@ -71,12 +72,38 @@ func (l LogJournalEntry) toString() string {
 		if l.Reverted {
 			return entryString + " reverted"
 		} else {
-			return entryString
+			return entryString + " confirmed"
 		}
 	} else {
 		return ""
 	}
 }
+
+func journalToString(l []journalEntry) string {
+       var sb strings.Builder
+       sb.WriteString("[\n")
+       for i, item := range l {
+               sb.WriteString(fmt.Sprintf("%d: %v", i, item.toString()))
+               if i < len(l) - 1 {
+                       sb.WriteString("\n")
+               }
+       }
+       sb.WriteString("\n]")
+       return sb.String()
+}
+
+func logJournalToString(j []LogJournalEntry) string {
+       var sb strings.Builder
+       for i, item := range j {
+               sb.WriteString(fmt.Sprintf("%d: %v", i, item.toString()))
+               if i < len(j) - 1 {
+                       sb.WriteString("\n")
+               }
+       }
+       sb.WriteString("\n]")
+       return sb.String()
+}
+
 
 func copyLogJournal(l []LogJournalEntry) []LogJournalEntry {
 	res := make([]LogJournalEntry, len(l))
@@ -121,15 +148,17 @@ type journal struct {
 	txLogEntries [][]LogJournalEntry
 	logOffset int
 	loggingFailure bool
+	logState bool
 }
 
 // newJournal creates a new initialized journal.
-func newJournal() *journal {
+func newJournal(loggingMode bool) *journal {
 	return &journal{
 		zombieEntries: make(map[common.Address]int),
 		// TODO: don't get rid of it yet
 		dirties: make(map[common.Address]int),
 		logDirties: make(map[common.Address]int),
+		logState: loggingMode,
 	}
 }
 
@@ -209,6 +238,7 @@ func (j *journal) findReverseOffset(idx int, prev int) (success bool, offset int
 		if j.logEntries[i].Reverted == true || getobjectok || getstorageok || getemptyok {
 			offset--
 		} else {
+			log.Info("Returning offset", fmt.Sprintf("log entry[%d+%d=%d", idx, offset, idx+offset), j.logEntries[i].toString())
 			return true, offset
 		}
 	}
@@ -256,27 +286,52 @@ func noGetReverted(logEntries []LogJournalEntry) bool {
 // revert undoes a batch of journalled modifications along with any reverted
 // dirty handling too.
 func (j *journal) revert(statedb *StateDB, snapshot int) {
-	offset := j.logOffset
+	var tempOffset int
+	tempOffset = j.logOffset
+    //var sb strings.Builder
+    //if j.logState {
+    //        //debug.PrintStack()
+    //        log.Error(">>>>>> start reverting", "snapshot", snapshot, "len(journal)", len(j.entries))
+    //        sb.WriteString("Logging failure? ")
+    //        sb.WriteString(strconv.FormatBool(j.loggingFailure))
+    //        sb.WriteString("\n")
+    //        sb.WriteString("Num appends: ")
+    //        sb.WriteString(strconv.Itoa(j.numAppends))
+    //        sb.WriteString("\n")
+    //        sb.WriteString("PRE DATA\n")
+    //        sb.WriteString("Revert: preoffset: ")
+    //        sb.WriteString(strconv.Itoa(j.logOffset))
+    //        sb.WriteString("\n")
+    //        sb.WriteString("Revert journal: ")
+    //        sb.WriteString(journalToString(j.entries))
+    //        sb.WriteString("\n")
+    //        sb.WriteString("Revert logJournal: ")
+    //        sb.WriteString(logJournalToString(j.logEntries))
+    //        sb.WriteString("\n")
+    //}
+    log.Info("Starting offset", "offset", tempOffset)
 	for i := len(j.entries) - 1; i >= snapshot; i-- {
 		if !j.loggingFailure {
 			// if the current logEntry is reverted loop until to find an offset that isn't
-			_, getobjectok := (j.logEntries[i+offset].Entry).(getStateObjectEntry)
-			_, getstorageok := (j.logEntries[i+offset].Entry).(getStorageEntry)
-			_, getemptyok := (j.logEntries[i+offset].Entry).(emptyDeleteEntry)
+			_, getobjectok := (j.logEntries[i+tempOffset].Entry).(getStateObjectEntry)
+			_, getstorageok := (j.logEntries[i+tempOffset].Entry).(getStorageEntry)
+			_, getemptyok := (j.logEntries[i+tempOffset].Entry).(emptyDeleteEntry)
 
-			if j.logEntries[i+offset].Reverted == true || getobjectok || getstorageok || getemptyok {
-				success, offset := j.findReverseOffset(i, offset)
+			if j.logEntries[i+tempOffset].Reverted == true || getobjectok || getstorageok || getemptyok {
+				success, offset := j.findReverseOffset(i, tempOffset)
+				tempOffset = offset
+				log.Info("Revert", "returned oreverse offset", tempOffset)
 				if success {
-					_, getobjectok = (j.logEntries[i+offset].Entry).(getStateObjectEntry)
-					_, getstorageok = (j.logEntries[i+offset].Entry).(getStorageEntry)
-					_, getemptyok = (j.logEntries[i+offset].Entry).(emptyDeleteEntry)
+					_, getobjectok = (j.logEntries[i+tempOffset].Entry).(getStateObjectEntry)
+					_, getstorageok = (j.logEntries[i+tempOffset].Entry).(getStorageEntry)
+					_, getemptyok = (j.logEntries[i+tempOffset].Entry).(emptyDeleteEntry)
 					// NOTE: the below commented out conditional is no longer valid because you can reverse because of gets rather than revertes so i+offset+1 doesn't always have to be reverted.
 					//if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) || getobjectok || getstorageok {
-					if !(j.logEntries[i+offset].Reverted == false) || getobjectok || getstorageok || getemptyok {
-						log.Info("Computed", "offset", offset, "idx", i)
+					if !(j.logEntries[i+tempOffset].Reverted == false) || getobjectok || getstorageok || getemptyok {
+						log.Info("Computed", "offset", tempOffset, "idx", i)
 						log.Info("SPecial cases", "gets", numGets(j.logEntries), "noGetReverted", noGetReverted(j.logEntries))
 						//panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v, isEmptyDelete=%v", j.logEntries[i+offset].Reverted, j.logEntries[i+offset+1].Reverted, getobjectok, getstorageok, getemptyok))
-						log.Error(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v, isEmptyDelete=%v", j.logEntries[i+offset].Reverted, j.logEntries[i+offset+1].Reverted, getobjectok, getstorageok, getemptyok))
+						log.Error(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v, isEmptyDelete=%v", j.logEntries[i+tempOffset].Reverted, j.logEntries[i+tempOffset+1].Reverted, getobjectok, getstorageok, getemptyok))
 						j.loggingFailure = true
 					}
 				} else {
@@ -286,17 +341,26 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		} 
 
 		// Undo the changes made by the operation
+		log.Info("Reverting entry")
 		j.entries[i].revert(statedb)
+		log.Info("Reverting", fmt.Sprintf("entry[%d]", i), j.entries[i].toString())
+		switch tlog := (j.entries[i]).(type) {
+		case createObjectChange:
+			log.Info("createObjectChange revert", "addr", tlog.account)
+		}
 
 		if !j.loggingFailure {
 			// in log entries just mark them reverted
-			j.logEntries[i+offset].logRevert(statedb)
-			if j.logEntries[i+offset].Reverted == false {
+			j.logEntries[i+tempOffset].logRevert(statedb)
+			log.Info("Reverting", fmt.Sprintf("logEntry[%d+%d=%d]", i, tempOffset, i+tempOffset), j.logEntries[i+tempOffset].toString())
+			if j.logEntries[i+tempOffset].Reverted == false {
 				//panic("logRevert not changed actual object")
 				log.Error("logRevert PANIC not changed actual object")
 				j.loggingFailure = true
 			}
 			j.logOffset++
+		} else {
+			log.Info("Journal revert logging failure")
 		}
 
 		// Drop any dirty tracking induced by the change
@@ -330,6 +394,33 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		}
 	}
 	j.entries = j.entries[:snapshot]
+    //if j.logState {
+    //        sb.WriteString("POST DATA\n")
+    //        sb.WriteString("Revert snapshot: ")
+    //        sb.WriteString(strconv.Itoa(snapshot))
+    //        sb.WriteString("\n")
+    //        sb.WriteString("Num appends: ")
+    //        sb.WriteString(strconv.Itoa(j.numAppends))
+    //        sb.WriteString("\n")
+    //        sb.WriteString("Post offset: ")
+    //        sb.WriteString(strconv.Itoa(j.logOffset))
+    //        sb.WriteString(" post journal: ")
+    //        sb.WriteString(journalToString(j.entries))
+    //        sb.WriteString("\n")
+    //        sb.WriteString("Revert logjournal: ")
+    //        sb.WriteString(logJournalToString(j.logEntries))
+    //        //log.Info("Revert", "snapshot", snapshot, "post journal", journalToString(j.entries)
+
+    //        //log.Info("Revert", "logJournal", logJournalToString(j.logEntries))
+    //        fn := fmt.Sprintf("/home/admin/statedb-data/output-%v.txt", j.fnIdx)
+    //        j.fnIdx++
+    //        data := []byte(sb.String())
+    //        err := os.WriteFile(fn, data, 0644)
+    //        if err != nil {
+    //                log.Error("Failed to write journals to file")
+    //        }
+    //        log.Info("dont reverting", "snapshot", snapshot)
+    //}
 }
 
 // dirty explicitly sets an address to dirty, even if the change entries would
@@ -369,6 +460,7 @@ func (j *journal) copy() *journal {
 		logEntries: logEntries,
 		logDirties: maps.Clone(j.logDirties),
 		logOffset: j.logOffset,
+		loggingFailure: j.loggingFailure,
 	}
 }
 
@@ -564,7 +656,8 @@ func ap(addr *common.Address) string {
 	if addr == nil {
 		return fmt.Sprintf("addr=nil")
 	} else {
-		return fmt.Sprintf("addr=%v", *addr)
+		//return fmt.Sprintf("addr=%v", *addr)
+		return fmt.Sprintf("addr=%x...%x", (*addr)[:3], (*addr)[len(*addr)-3:])
 	}
 }
 
@@ -572,7 +665,8 @@ func vp(val *common.Hash) string {
 	if val == nil {
 		return fmt.Sprintf("val=nil")
 	} else {
-		return fmt.Sprintf("val=%v", *val)
+		//return fmt.Sprintf("val=%v", *val)
+		return fmt.Sprintf("val=%x...%x", (*val)[:3], (*val)[len(*val)-3:])
 	}
 }
 
@@ -580,7 +674,8 @@ func kp(key *common.Hash) string {
 	if key == nil {
 		return fmt.Sprintf("key=nil")
 	} else {
-		return fmt.Sprintf("key=%v", *key)
+		//return fmt.Sprintf("key=%v", *key)
+		return fmt.Sprintf("key=%x...%x", (*key)[:3], (*key)[len(*key)-3:])
 	}
 }
 
@@ -671,7 +766,7 @@ func (ch getStateObjectEntry) Account() *common.Address {
 }
 
 func (ch getStateObjectEntry) toString() string {
-	return "getStateObject(" + ap(&(ch.account)) + ")"
+	return "\tgetStateObject(" + ap(&(ch.account)) + ")"
 }
 
 func (ch getStateObjectEntry) MarshalJSON() ([]byte, error) {
@@ -695,7 +790,7 @@ func (ch *getStateObjectEntry) UnmarshalJSON(b []byte) error {
 
 // getStorageEntry
 func (ch getStorageEntry) toString() string {
-	return "getStorage(" + akv(&(ch.account), &(ch.key), &(ch.value)) + ")"
+	return "\tgetStorage(" + akv(&(ch.account), &(ch.key), &(ch.value)) + ")"
 }
 func (ch getStorageEntry) Account() *common.Address {
 	return &(ch.account)
@@ -821,7 +916,8 @@ func (ch createContractChange) toString() string {
 }
 
 func (ch createContractChange) revert(s *StateDB) {
-	s.getStateObject(ch.account).newContract = false
+	//s.getStateObject(ch.account).newContract = false
+	s.getStateObjectNoLog(ch.account).newContract = false
 }
 
 func (ch createContractChange) dirtied() *common.Address {
@@ -866,7 +962,8 @@ func (ch selfDestructChange) toString() string {
 }
 
 func (ch selfDestructChange) revert(s *StateDB) {
-	obj := s.getStateObject(ch.account)
+	//obj := s.getStateObject(ch.account)
+	obj := s.getStateObjectNoLog(ch.account)
 	if obj != nil {
 		obj.selfDestructed = false
 	}
@@ -973,7 +1070,8 @@ func (ch balanceChange) toString() string {
 }
 
 func (ch balanceChange) revert(s *StateDB) {
-	s.getStateObject(ch.account).setBalance(ch.prev)
+	//s.getStateObject(ch.account).setBalance(ch.prev)
+	s.getStateObjectNoLog(ch.account).setBalance(ch.prev)
 }
 
 func (ch balanceChange) dirtied() *common.Address {
@@ -1023,7 +1121,8 @@ func (ch nonceChange) toString() string {
 } 
 
 func (ch nonceChange) revert(s *StateDB) {
-	s.getStateObject(ch.account).setNonce(ch.prev)
+	//s.getStateObject(ch.account).setNonce(ch.prev)
+	s.getStateObjectNoLog(ch.account).setNonce(ch.prev)
 }
 
 func (ch nonceChange) dirtied() *common.Address {
@@ -1069,11 +1168,12 @@ func (ch *nonceChange) UnmarshalJSON(b []byte) error {
 
 // codeChange
 func (ch codeChange) toString() string {
-	return ""
+	return "codeChange(" + ap(&(ch.account)) + ")"
 }
 
 func (ch codeChange) revert(s *StateDB) {
-	s.getStateObject(ch.account).setCode(crypto.Keccak256Hash(ch.prevCode), ch.prevCode)
+	//s.getStateObject(ch.account).setCode(crypto.Keccak256Hash(ch.prevCode), ch.prevCode)
+	s.getStateObjectNoLog(ch.account).setCode(crypto.Keccak256Hash(ch.prevCode), ch.prevCode)
 }
 
 func (ch codeChange) dirtied() *common.Address {
@@ -1128,7 +1228,8 @@ func (ch storageChange) toString() string {
 }
 
 func (ch storageChange) revert(s *StateDB) {
-	s.getStateObject(ch.account).setState(ch.key, ch.prevvalue, ch.origvalue)
+	//s.getStateObject(ch.account).setState(ch.key, ch.prevvalue, ch.origvalue)
+	s.getStateObjectNoLog(ch.account).setState(ch.key, ch.prevvalue, ch.origvalue)
 }
 
 func (ch storageChange) dirtied() *common.Address {
@@ -1211,7 +1312,7 @@ func (ch *storageChange) UnmarshalJSON(b []byte) error {
 
 // transientStorageChange
 func (ch transientStorageChange) toString() string {
-	return ""
+	return "transientStorageChange(" + ap(&(ch.account)) + ")"
 } 
 
 func (ch transientStorageChange) revert(s *StateDB) {
@@ -1271,7 +1372,7 @@ func (ch *transientStorageChange) UnmarshalJSON(b []byte) error {
 
 // refundChange
 func (ch refundChange) toString() string {
-	return ""
+	return "refundChange()"
 }
 
 func (ch refundChange) revert(s *StateDB) {
@@ -1314,7 +1415,7 @@ func (ch *refundChange) UnmarshalJSON(b []byte) error {
 
 // addLogChange
 func (ch addLogChange) toString() string {
-	return ""
+	return "addLogChange()"
 }
 
 func (ch addLogChange) revert(s *StateDB) {
@@ -1408,7 +1509,7 @@ func (ch *addLogChange) UnmarshalJSON(b []byte) error {
 
 // accessListAddAccountChange
 func (ch accessListAddAccountChange) toString() string {
-	return ""
+	return "accessListAddAccountChange()"
 }
 
 func (ch accessListAddAccountChange) revert(s *StateDB) {
@@ -1462,7 +1563,7 @@ func (ch *accessListAddAccountChange) UnmarshalJSON(b []byte) error {
 
 // accessListAddSlotChange
 func (ch accessListAddSlotChange) toString() string {
-	return ""
+	return "accessListAddSlotChange()"
 }
 
 func (ch accessListAddSlotChange) revert(s *StateDB) {

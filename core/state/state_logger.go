@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -22,6 +23,59 @@ func (s *StateDB) accountToBytes(addr common.Address) (bool, []byte) {
 	}
 	return true, stateObjectToBytes(obj)
 }
+
+// getStateObject retrieves a state object given by the address, returning nil if
+// the object is not found or was deleted in this execution context.
+// this function is called from the different revert functions in journal
+// because we don't want a revert operation to add things to the journal in
+// the middle because it messes up the accounting, the access is always logged
+// previously by operation that is being reverted.
+func (s *StateDB) getStateObjectNoLog(addr common.Address) *stateObject {
+	// Prefer live objects if any is available
+	//log.Info("getStateObject", "addr", addr)
+	if obj := s.stateObjects[addr]; obj != nil {
+		//log.Info("In stateObjects")
+		//s.journal.getState(addr)
+		return obj
+	}
+	// Short circuit if the account is already destructed in this block.
+	if _, ok := s.stateObjectsDestruct[addr]; ok {
+		log.Info("destructed")
+		// let it return here because a destruted object is always known and instantly checked
+		// eventually the advice or whatever can inform that something is destroyed, and we don't
+		// want to cache anything explored here
+		return nil
+	}
+	s.AccountLoaded++
+
+	start := time.Now()
+	//log.Info("Get reader")
+	acct, err := s.reader.Account(addr)
+
+	//s.journal.getState(addr)
+
+	if err != nil {
+		s.setError(fmt.Errorf("getStateObject (%x) error: %w", addr.Bytes(), err))
+		return nil
+	}
+	s.AccountReads += time.Since(start)
+
+	// Short circuit if the account is not found
+	if acct == nil {
+		return nil
+	}
+	// Schedule the resolved account for prefetching if it's enabled.
+	if s.prefetcher != nil {
+		if err = s.prefetcher.prefetch(common.Hash{}, s.originalRoot, common.Address{}, []common.Address{addr}, nil, true); err != nil {
+			log.Error("Failed to prefetch account", "addr", addr, "err", err)
+		}
+	}
+	// Insert into the live set
+	obj := newObject(s, addr, acct)
+	s.setStateObject(obj)
+	return obj
+}
+
 
 func (s *StateDB) findStorageChangeInJournal(addr common.Address, key common.Hash) {
 	for _, lentry := range s.journal.logEntries {
