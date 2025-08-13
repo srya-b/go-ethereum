@@ -17,9 +17,9 @@ func (s *StateDB) accountToBytes(addr common.Address) (bool, []byte) {
 	obj, exist := s.stateObjects[addr]
 	if !exist {
 		s.findGetCreates(addr)
-		panic(fmt.Sprintf("Called accountToEncodeNode with address not in stateObjects: %v", addr))
-		//log.Error(fmt.Sprintf("Called accountToEncodeNode with address not in stateObjects: %v", addr))
-		//return false, nil
+		//panic(fmt.Sprintf("Called accountToEncodeNode with address not in stateObjects: %v", addr))
+		log.Error(fmt.Sprintf("Called accountToEncodeNode with address not in stateObjects: %v", addr))
+		return false, nil
 	}
 	return true, stateObjectToBytes(obj)
 }
@@ -40,7 +40,7 @@ func (s *StateDB) getStateObjectNoLog(addr common.Address) *stateObject {
 	}
 	// Short circuit if the account is already destructed in this block.
 	if _, ok := s.stateObjectsDestruct[addr]; ok {
-		log.Info("destructed")
+		log.Debug("destructed")
 		// let it return here because a destruted object is always known and instantly checked
 		// eventually the advice or whatever can inform that something is destroyed, and we don't
 		// want to cache anything explored here
@@ -89,7 +89,7 @@ func (s *StateDB) findStorageChangeInJournal(addr common.Address, key common.Has
 					panic("doesn't exist")
 				}
 				newval := obj.GetState(k)
-				log.Info("Target entry", "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", newval)
+				log.Debug("Target entry", "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", newval)
 			}
 		}
 	}
@@ -102,7 +102,7 @@ func (s *StateDB) findGetSets(addr common.Address, key common.Hash) {
 			a := logEntry.account
 			k := logEntry.key
 			if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
-				log.Info("Get target.", "idx", idx, "addr", a, "key", k, "value", logEntry.value)
+				log.Debug("Get target.", "idx", idx, "addr", a, "key", k, "value", logEntry.value)
 			}
 		case storageChange:
 			a := logEntry.account
@@ -113,7 +113,7 @@ func (s *StateDB) findGetSets(addr common.Address, key common.Hash) {
 					panic("doesn't exist")
 				}
 				newval := obj.GetState(k)
-				log.Info("Target entry", "idx", idx, "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", newval)
+				log.Debug("Target entry", "idx", idx, "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", newval)
 			}
 		}
 	}
@@ -130,7 +130,7 @@ func PublicFindGetSets(addr common.Address, key common.Hash, j [][]LogJournalEnt
 				k := logEntry.key
 				//if (addr.Cmp(a) == 0 && key.Cmp(k) == 0) {
 				if (addr.Cmp(a) == 0) {
-					log.Info("Get target.", "idx", idx, "addr", a, "key", k, "value", logEntry.value)
+					log.Debug("Get target.", "idx", idx, "addr", a, "key", k, "value", logEntry.value)
 				}
 			case storageChange:
 				a := logEntry.account
@@ -142,7 +142,7 @@ func PublicFindGetSets(addr common.Address, key common.Hash, j [][]LogJournalEnt
 					//	panic("doesn't exist")
 					//}
 					//newval := obj.GetState(k)
-					log.Info("Target entry", "idx", idx, "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", logEntry.newvalue)
+					log.Debug("Target entry", "idx", idx, "addr", addr, "key", key, "prevvalue", logEntry.prevvalue, "new", logEntry.newvalue)
 				}
 			}
 		}
@@ -155,7 +155,7 @@ func (s *StateDB) findGetCreates(addr common.Address) {
 		case getStateObjectEntry:
 			a := logEntry.account
 			if addr.Cmp(a) == 0 {
-				log.Info("Get obj target", "idx", idx, "addr", a, "revert", lentry.Reverted)
+				log.Debug("Get obj target", "idx", idx, "addr", a, "revert", lentry.Reverted)
 			}
 		case createObjectChange:
 			a := logEntry.account
@@ -164,28 +164,28 @@ func (s *StateDB) findGetCreates(addr common.Address) {
 				if !exists {
 					log.Error("obj doesn't exist")
 				}
-				log.Info("create obj target", "idx", idx, "addr", a, "revert", lentry.Reverted)
+				log.Debug("create obj target", "idx", idx, "addr", a, "revert", lentry.Reverted)
 			}
 		case selfDestructChange:
 			a := logEntry.account
 			if addr.Cmp(a) == 0 {
-				log.Info("Self destruct target", "idx", idx, "addr", a, "revert", lentry.Reverted)
+				log.Debug("Self destruct target", "idx", idx, "addr", a, "revert", lentry.Reverted)
 				_, ok := s.stateObjects[a]
 				if ok {
-					log.Info("is in state objects")
+					log.Debug("is in state objects")
 				} else {
-					log.Info("not in stateObjects")
+					log.Debug("not in stateObjects")
 				}
 			}
 		case createContractChange:
 			a := logEntry.account
 			if addr.Cmp(a) == 0 {
-				log.Info("create contract change", "idx", idx, "addr", a, "revert", lentry.Reverted)
+				log.Debug("create contract change", "idx", idx, "addr", a, "revert", lentry.Reverted)
 				_, ok := s.stateObjects[a]
 				if ok {
-					log.Info("is in state objects")
+					log.Debug("is in state objects")
 				} else {
-					log.Info("is NOT in stateObjects")
+					log.Debug("is NOT in stateObjects")
 				}
 			}
 		}
@@ -202,31 +202,31 @@ func PublicFindAll(addr common.Address, j [][]LogJournalEntry) {
 				k := logEntry.key
 				_, seen := seenKeys[KeyKey{a, k}]
 				if addr.Cmp(a) == 0 {
-					log.Info("Found a match")
+					log.Debug("Found a match")
 					if !seen {
-						log.Info("Get storage target", "journal", jidx, "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
+						log.Debug("Get storage target", "journal", jidx, "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
 						seenKeys[KeyKey{a, k}] = true
 					}
 				}
 			case getStateObjectEntry:
 				a := logEntry.account
 				if addr.Cmp(a) == 0 {
-					log.Info("Get obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+					log.Debug("Get obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
 				}
 			case createObjectChange:
 				a := logEntry.account
 				if addr.Cmp(a) == 0 {
-					log.Info("create obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+					log.Debug("create obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
 				}
 			case selfDestructChange:
 				a := logEntry.account
 				if addr.Cmp(a) == 0 {
-					log.Info("Self destruct target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+					log.Debug("Self destruct target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
 				}
 			case createContractChange:
 				a := logEntry.account
 				if addr.Cmp(a) == 0 {
-					log.Info("create contract change", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+					log.Debug("create contract change", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
 				}
 			default:
 			}
@@ -243,13 +243,13 @@ func (s *StateDB) findAll(addr common.Address) {
 			k := logEntry.key
 			_, seen := seenKeys[KeyKey{a, k}]
 			if !seen && addr.Cmp(a) == 0 {
-				log.Info("Get storage target", "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
+				log.Debug("Get storage target", "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
 				seenKeys[KeyKey{a, k}] = true
 			}
 		case getStateObjectEntry:
 			a := logEntry.account
 			if addr.Cmp(a) == 0 {
-				log.Info("Get obj target", "idx", idx, "addr", a, "revert", lentry.Reverted)
+				log.Debug("Get obj target", "idx", idx, "addr", a, "revert", lentry.Reverted)
 			}
 		case createObjectChange:
 			a := logEntry.account
@@ -258,28 +258,28 @@ func (s *StateDB) findAll(addr common.Address) {
 				if !exists {
 					log.Error("obj doesn't exist")
 				}
-				log.Info("create obj target", "idx", idx, "addr", a, "revert", lentry.Reverted)
+				log.Debug("create obj target", "idx", idx, "addr", a, "revert", lentry.Reverted)
 			}
 		case selfDestructChange:
 			a := logEntry.account
 			if addr.Cmp(a) == 0 {
-				log.Info("Self destruct target", "idx", idx, "addr", a, "revert", lentry.Reverted)
+				log.Debug("Self destruct target", "idx", idx, "addr", a, "revert", lentry.Reverted)
 				_, ok := s.stateObjects[a]
 				if ok {
-					log.Info("is in state objects")
+					log.Debug("is in state objects")
 				} else {
-					log.Info("not in stateObjects")
+					log.Debug("not in stateObjects")
 				}
 			}
 		case createContractChange:
 			a := logEntry.account
 			if addr.Cmp(a) == 0 {
-				log.Info("create contract change", "idx", idx, "addr", a, "revert", lentry.Reverted)
+				log.Debug("create contract change", "idx", idx, "addr", a, "revert", lentry.Reverted)
 				_, ok := s.stateObjects[a]
 				if ok {
-					log.Info("is in state objects")
+					log.Debug("is in state objects")
 				} else {
-					log.Info("is NOT in stateObjects")
+					log.Debug("is NOT in stateObjects")
 				}
 			}
 		}
@@ -331,7 +331,7 @@ func (s *StateDB) getAccountLogs(deletedAddrs []common.Address) (bool, map[commo
 				ret := new(types.StateAccount)
 				err = rlp.DecodeBytes(rn, ret)
 				if err != nil {
-					log.Info("couldn't decode account", "addr", addr)
+					log.Debug("couldn't decode account", "addr", addr)
 					log.Error("getAccountLogs", "err", err)
 					return false, nil, nil
 					//panic(err)
@@ -366,7 +366,7 @@ func (s *StateDB) getKeyLogs() (bool, map[KeyKey][]common.Hash, map[common.Hash]
 
 		obj, exist := s.stateObjects[addr]
 		if !exist {
-			log.Info("Getting the key of account that doesn't exist", "addr", addr)
+			log.Debug("Getting the key of account that doesn't exist", "addr", addr)
 			// TODO: should we still get these nodes?
 			// keys that aren't in the maps anymore means they are of a deleted node
 			// add them as nil
@@ -419,7 +419,7 @@ func (s *StateDB) getKeyLogs() (bool, map[KeyKey][]common.Hash, map[common.Hash]
 			oldrn, ok := keyNodes[hn]
 			if ok {
 				if bytes.Compare(rn, oldrn) != 0 {
-					log.Info("conflict", "rn", rn, "oldrn", oldrn)
+					log.Debug("conflict", "rn", rn, "oldrn", oldrn)
 					//panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
 					log.Error(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
 					return false, nil, nil
@@ -438,7 +438,7 @@ func (s *StateDB) getKeyLogs() (bool, map[KeyKey][]common.Hash, map[common.Hash]
 // when a new trie path is created we know which addrs exist now, we can save that
 
 // Finalize logger
-func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]common.Hash, map[common.Hash][]byte, map[KeyKey][]common.Hash, map[common.Hash][]byte) {
+func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]common.Hash, map[common.Hash][]byte, map[KeyKey][]common.Hash, map[common.Hash][]byte, map[common.Address]bool, map[common.Address]bool) {
 	accounts := make(map[common.Address][]common.Hash)
 	accountNodes := make(map[common.Hash][]byte)
 	keys := make(map[KeyKey][]common.Hash)
@@ -469,7 +469,8 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 		}
 	}
 
-	//createdAndDeleted := map[common.Address]bool
+	createdAndDeleted := make(map[common.Address]bool)
+    revertedCreateObject := make(map[common.Address]bool)
 
 	for idx, lentry := range s.journal.logEntries {
 		var addr *common.Address
@@ -479,50 +480,115 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 		case createObjectChange:
 			// this is a new stateObject so log the hash the value node representation of the state
 			addr = &(logEntry.account)
-			log.Info("Is this marked as reverted??", "addr", *addr, "reverted", lentry.Reverted)
-			_, rawNode := s.accountToBytes(*addr)
+			log.Debug("coc: Is this marked as reverted??", "addr", *addr, "reverted", lentry.Reverted)
+			exists, rawNode := s.accountToBytes(*addr)
+
+            // if it doesn't exist in stateObjects one of two things could be the case:
+            //     1. The message reverted so it is nullified
+            //     2. There is a selfDestruct somewhere later in the journal that cancels this out
+            // We could check the journal right now for a later self destruct of this same address OR
+            // we just wait till we encounter it and track all the "creates" that don't exist and weren't
+            // reverted and check that each of them has a corresponding selfDestruct operation
+            if !exists {
+                if !lentry.Reverted {
+                    // if it wasn't reverted, then we track it and wait for the future selfDestruct that
+                    // deleted this from stateObjects
+                    log.Debug("coc: Could be that the object gets deleted later", "addr", *addr) 
+				    prev, ok := createdAndDeleted[*addr]
+				    if ok {
+                        // if this address is already tracked in createdAndDeleted this can still be OK
+                        // someone might be calling create multiple times, we just wait until selfDestruct
+				    	// should be false, should delete before another create
+				    	log.Error("coc: Account was already seen as created", "addr", *addr)
+				    	if prev {
+                            // if its value in createdAndDelted is TRUE that means we haven't seen a selfDestruct since
+                            // the last createObjectChange where we didn't find it in stateObjects
+                            // TODO: for now this is okay but unexpected
+				    		log.Error("this thing was prev created sna created again without a delete", "addr", *addr)
+                            continue
+				    		//panic("coc: this thing was prev created sna created again without a delete", "addr", *addr)
+				    		//return false, nil, nil, nil, nil, nil
+				    	}
+				    }
+                    // it isn't in createdAndDeleted so store it and wait
+				    createdAndDeleted[*addr] = true
+                    log.Debug("coc: Object isn't in stateObjects and its createObjectChange wasn't reverted")
+                    //panic("log finalize 488")
+                } else {
+                    // if it is reverted just add it to the reverted map instead of createAndDelete
+                    revertedCreateObject[*addr] = true
+                }
+                // regardless of which case (1. or 2.) we should continue and not process this any further
+                continue
+            }
+            // it does exist in stateObjects
 			// the node has no hash so we store the key and value as the same
 			// convert it into a hashNode	
-			//if len(rawNode) > common.HashLength {
-			//	log.Error("Doing a BytesToHash of a rawNode that is too big", "rawNode", len(rawNode))
-			//	panic("soundness error")
-			//}
-			//rawNodeHash := common.BytesToHash(rawNode)
 			rawNodeHash := trie.HashValueNode(rawNode)
-			// set it to nil because this is a new account
-			// for all accounts that don't have a path then we know it's a new one
+			// for all accounts that are new we store only the account itself (as a leaf)
+            // as its path
 			//accounts[*addr] = nil
 			_, ok := accounts[*addr]
 			if ok {
-				log.Info("LogFinalize: Created twice", "account", *addr)
-			}
+                // created twice is OK
+				log.Debug("LogFinalize: Created twice", "account", *addr)
+			} else {
+                log.Info("Create account.", "addr", *addr)
+            }
 			accounts[*addr] = []common.Hash{rawNodeHash}
 			accountNodes[rawNodeHash] = rawNode
 		case createContractChange:
 			// need to check if this already exists, sometimes the object is created before
 			// the contract is "created"
+            // statedb CreateContract seems to assume the account is already in stateObjectso
+            // (a getStateObject call is made and the result is not checked for nil)
+            // therefore we should assume the same 
+            // since we assume the object exists, there is only one case that it shouldn't
+            // be found and that is 
 			addr = &(logEntry.account)
 			_, ok := accounts[*addr]
-			if ok {
-				// this object is created and then set as a contract
-				log.Info("LogFinalize: contract crearte of existing obj", "addr", *addr)
+            _, maybeDeleted := createdAndDeleted[*addr]
+            _, createReverted := revertedCreateObject[*addr]
+			found, rawNode := s.accountToBytes(*addr)
+			if !ok {
+                // a createContractChange always gets the object so we must have seen this account already
+                // if it isn't in accounts then that means it was reverted or deleted 
+                if found || createReverted {
+                    // this should never happen: this means that we haven't seen this yet in the jornal
+                    // but a createObjectEntry is always preceded by a getStateObject
+                    log.Error("We havent seen address before, but it IS in stateObjects. This MUST hve been logged already", "addr", *addr)
+                    panic("Log finalize, createContractChange found")
+                }
+                if !lentry.Reverted && !maybeDeleted {
+                    if !createReverted {
+                        log.Debug("createContractCHange was reverted, but not in createReverted")
+                    }
+                    // this is a reason to panic 
+                    log.Error("Address fr createContractChange isn't in stateObjects and isn't reverted or createdAndDeleted", "addr", *addr)
+                    panic("Log finalize createContractChange")
+                }
+                // otherwise one of those must be true and we're good we can just skip this
+                // we don't even need to add to createdAndDelete because a previous entry definitely already did. Check that:
+                //_, ok := createdAndDeleted[*addr]
+                if !maybeDeleted { panic("err") }
+				log.Debug("LogFinalize: contract crearte of existing obj", "addr", *addr)
+                log.Info("Access", "addr", *addr)
+                continue
 			}
-			_, rawNode := s.accountToBytes(*addr)
-			//if !found {
-			//	log.Info("createContractChange: account not in stateObjects means it must have been deleted in the same transaction or the same block after this event.", "addr", *addr)
-			//	// keep an eye on this and wait for a delete to happen
-			//	prev, ok := createdAndDeleted[*addr]
-			//	if ok {
-			//		// should be false, should delete before another create
-			//		log.Error("Account was already seen as created", "addr", *addr)
-			//		if prev {
-			//			log.Error("this thing was prev created sna created again without a delete", "addr", *addr)
-			//			return false, nil, nil, nil, nil, nil
-			//		}
-			//	}
-			//	createdAndDeleted[*addr] = true
-			//	continue
-			//}
+            // if it WAS found in means a previous access found it in stateObjects and it wasn't createdAndDeleted.
+            // Check that no:
+            if maybeDeleted {
+                log.Error("It WAS in accounts[addr] but is also in createdAndDeleted, but if it was deleted it shouldn't be in here", "addr", *addr)
+                panic("Log finalize createContractChange in accounts")
+            }
+            // if it wasn't found, it should never have been logged into accounts[*addr] it would be saved in createdAnd Deleted
+            // a reverted createContractChange can't be the reason for something to not be found, since it doesn't delete the stateObject
+			if !found {
+                log.Error("Can't be not found, it was in accounts[*addr]", "addr", *addr)
+                panic("log finalize !found but in accounts")
+            }
+
+            //now we know that it is in accounts and it is found
 			//rawNodeHash := common.BytesToHash(rawNode)
 			rawNodeHash := trie.HashValueNode(rawNode)
 			//accounts[*addr] = nil
@@ -530,42 +596,66 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 			accountNodes[rawNodeHash] = rawNode
 		case getStateObjectEntry:
 			addr = logEntry.Account()
+            // if the account is in accounts that means it was already processed
+            // and so must exist after this transaction is over otherwise we would've
+            // put it into createdAndDeleted or Reverted. If this acount was deleted
+            // it doesn't matter because selfDesturct always gets the object first
+            // meaning that if it was in accounts we logged it regardless.
+
+            // If the account is in createdAndDeleted or Reverted, this means
+            // this account was created in this block and deleted. It is possible
+            // that this is in either of these two maps, and still accessed (i.e.
+            // in the map accounts. Since both of these correspond to a create event
+            // we can ignore doing anything here. If the sequence was: perform a get
+            // request and then create one if nothing exists, then that get request
+            // will come first and we'll catch and log the trie search according to that.
+            // Once the create operation is seen we don't do anything else. Other accounts
+            // that are created (and persist) will be saved in accounts and we'll also
+            // get their path in IntermediateRoot's logging.
+            _, candd := createdAndDeleted[*addr]
+            _, revd := revertedCreateObject[*addr]
 			_, ok := accounts[*addr]
-			if !ok {
+            //if candd || revd {
+            //    if ok {
+            //        log.Error("This account was createdAndDeleted but is in acccounts??", "addr", *addr, "candd", candd, "revd", revd)
+            //        panic("logFinalize getStateObject error")
+            //    }
+            //}
+
+			if !ok && !candd && !revd {
 				// we haven't seen it so we store the nodes on the path
 				res, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(*addr)
-				log.Info("LogFinalize: account access", "addr", *addr)
+				log.Debug("LogFinalize: account access", "addr", *addr)
 				if err != nil || len(pathHashes) == 0 || len(rawNodesOnPath) == 0 {
-					// try stateObjects
+                    // trie get should never give nothing in return, it should always
+                    // at least return the path down to where this account would have been 
+                    // if it hasn't been committed to the trie yet
+                    // get account info from the different databases
 					_, ok := s.stateObjects[*addr]
-					log.Info("Addr in stateObjects?", "addr", *addr, "ok", ok)
-					// try reader
+					log.Debug("Addr in stateObjects?", "addr", *addr, "ok", ok)
 					acct, err := s.reader.Account(*addr)
-					log.Info("Reader check", "acct", acct, "err", err)
+					log.Debug("Reader check", "acct", acct, "err", err)
 					log.Error("LogFinalise [454]: FAILURE")
-					return false, nil, nil, nil, nil, nil
-					//panic("")
+                    panic("")
+					return false, nil, nil, nil, nil, nil, nil, nil
 				}
-				// what about getting addresses that don't exist?
+
+                // if we got a leaf back then this account def existed before this tranasction
+                // even before this block because it was commited into the trie
 				if res != nil {
 					s.accountsInTrie[*addr] = true
 				}
 
+                // save the pathHashes and do some sanity checks on what we got
 				accounts[*addr] = pathHashes
 				for _, rn := range rawNodesOnPath {
 					n, err := trie.PublicDecodeNode(nil, rn)
 					if err == nil {
+                        // only add a hash -> rawNode to the map if it's one
+                        // we haven't already seen
 						hn := trie.HashNode(n)
-						oldrn, ok := accountNodes[hn]
-						
-						if ok {
-							// then the raw nodes should be the same
-							if bytes.Compare(rn, oldrn) != 0 {
-								//panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
-								log.Error(fmt.Sprintf("LogFinalize [474] Same hash %v has two different raw nodes.", hn))
-								return false, nil, nil, nil, nil, nil
-							}
-						} else {
+						_, ok := accountNodes[hn]
+						if !ok {
 							accountNodes[hn] = rn
 						}
 					} else {
@@ -575,19 +665,13 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 						err = rlp.DecodeBytes(rn, ret)
 						if err != nil {
 							log.Error("LogFinalize [483] couldn't decode account", "idx", idx, "addr", *addr)
-							return false, nil, nil, nil, nil, nil
-							//panic(err)
+							panic(err)
+							return false, nil, nil, nil, nil, nil, nil, nil
 						}
 						// now save this valueNode in the map
 						hn := trie.HashData(rn)
-						oldrn, ok := accountNodes[hn]
-						if ok {
-							if bytes.Compare(rn, oldrn) != 0 {
-								//panic(fmt.Sprintf("Same hash %v has two different accounts", hn))
-								log.Error(fmt.Sprintf("LogFinalize [496] Same hash %v has two different accounts", hn))
-								return false, nil, nil, nil, nil, nil
-							}
-						} else {
+						_, ok := accountNodes[hn]
+						if !ok {
 							accountNodes[hn] = rn
 						}
 					}
@@ -598,11 +682,20 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 			key = logEntry.Key()
 			keykey = KeyKey{*addr, *key}
 			// ASSERT that we've sene the account before
+            _, candd := createdAndDeleted[*addr]
+            _, revd := revertedCreateObject[*addr]
 			_, ok := accounts[*addr]
+            if candd || revd {
+                // this was created and deleted in this same transaction so we can ignore this
+                if ok {
+                    log.Error("This account was createdAndDeleted but is in acccounts??", "addr", *addr, "candd", candd, "revd", revd)
+                    panic("logFinalize getStateObject error")
+                }
+            }
 			if !ok {
-				//panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+				panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
 				log.Error(fmt.Sprintf("LogFinalize [513] getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
-				return false, nil, nil, nil, nil, nil
+				return false, nil, nil, nil, nil, nil, nil, nil
 			}
 		
 			//_, ok = s.keysSeen[keykey]
@@ -611,15 +704,15 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 				// get the stateObject first it should be in stateObjects
 				obj, exist := s.stateObjects[*addr]
 				if !exist {
-					//panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
 					log.Error(fmt.Sprintf("LogFinalize [524] Address %v not in stateObejcts", *addr))
-					return false, nil, nil, nil, nil, nil
+					return false, nil, nil, nil, nil, nil, nil, nil
 				}
 				//log.Info("log finalize storage entry CALL", "addr", *addr, "key", *key)
-				log.Info("LogFinalize: key access", "addr", *addr, "key", *key)
+				log.Debug("LogFinalize: key access", "addr", *addr, "key", *key)
 				success, trieVal, pathHashes, rawNodesOnPath := obj.GetTrieStateLogged(*key)
 				if !success {
-					return false, nil, nil, nil, nil, nil
+					return false, nil, nil, nil, nil, nil, nil, nil
 				}
 				//log.Info("log finalize storage entry", "addr", *addr, "key", *key)
 				var testVal common.Hash
@@ -642,9 +735,9 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 						s.findGetSets(*addr, *key)
 						m, _ := accounts[*addr]
 						log.Error("Account information", "hashes", m)
-						//panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v, idx=%v) gave no data", *addr, *key, idx))
+						panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v, idx=%v) gave no data", *addr, *key, idx))
 						log.Error(fmt.Sprintf("LogFinalize [552] GetStorageLogged(addr=%v, key=%v, idx=%v) gave no data", *addr, *key, idx))
-						return false, nil, nil, nil, nil, nil
+						return false, nil, nil, nil, nil, nil, nil, nil
 					}
 				}
 				keys[keykey] = pathHashes
@@ -652,27 +745,15 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 					n, err := trie.PublicDecodeNode(nil, rn)
 					if err == nil {
 						hn := trie.HashNode(n)
-						oldrn, ok := keyNodes[hn]
-						if ok {
-							if bytes.Compare(rn, oldrn) != 0 {
-								//panic(fmt.Sprintf("Same hash %v has two different raw nodes.", hn))
-								log.Error(fmt.Sprintf("LogFinalize [565] Same hash %v has two different raw nodes.", hn))
-								return false, nil, nil, nil, nil, nil
-							}
-						} else {
+						_, ok := keyNodes[hn]
+                        if !ok {
 							keyNodes[hn] = rn
 						}
 					} else {
 						// this is a valuenode we do the normal check that the hash is in there
 						hn := trie.HashData(rn)
-						oldrn, ok := keyNodes[hn]
-						if ok {
-							if bytes.Compare(rn, oldrn) != 0 {
-								//panic(fmt.Sprintf("Same hash %v hash two different valuenodes. rn=%v, oldrn=%v", hn, rn, oldrn))
-								log.Error(fmt.Sprintf("LogFinalize [578] Same hash %v hash two different valuenodes. rn=%v, oldrn=%v", hn, rn, oldrn))
-								return false, nil, nil, nil, nil, nil
-							}
-						} else {
+						_, ok := keyNodes[hn]
+                        if !ok {
 							keyNodes[hn] = rn
 						}
 					}
@@ -689,31 +770,31 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 				keykey = KeyKey{*addr, *key}
 				_, ok := accounts[*addr]
 				if !ok {
-					//panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
+					panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
 					log.Error(fmt.Sprintf("LogFinalize [599] getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
-					return false, nil, nil, nil, nil, nil
+					return false, nil, nil, nil, nil, nil, nil, nil
 				}
 				obj, exist := s.stateObjects[*addr]
 				if !exist {
-					//panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
 					log.Error(fmt.Sprintf("LogFinalize [605] Address %v not in stateObejcts", *addr))
-					return false, nil, nil, nil, nil, nil
+					return false, nil, nil, nil, nil, nil, nil, nil
 				}
 				// GetStateLogged is called here because there is no "miss" for the storage change from nil
 				// GetStateLogged is just to check that the get short circuits and gives no paths or nodes
 				success, _, pathHashes, rawNodesOnPath := obj.GetStateLogged(*key)
 				if !success {
 					log.Error("LogFinalize: GetStateLogged PANIC")
-					return false, nil, nil, nil, nil, nil
+					return false, nil, nil, nil, nil, nil, nil, nil
 				}
 
 				if !(len(pathHashes) == 0 && len(rawNodesOnPath) == 0) {
-					//panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
+					panic(fmt.Sprintf("GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
 					log.Error(fmt.Sprintf("LogFinalize [613] GetStorageLogged(addr=%v, key=%v) for a new key gave data", *addr, *key))
-					return false, nil, nil, nil, nil, nil
+					return false, nil, nil, nil, nil, nil, nil, nil
 				}
 				//keys[keykey] = nil
-				log.Info("LogFinalize: storage write", "addr", *addr, "key", *key, "prev", logEntry.prevvalue, "new", logEntry.newvalue)
+				log.Debug("LogFinalize: storage write", "addr", *addr, "key", *key, "prev", logEntry.prevvalue, "new", logEntry.newvalue)
 				v := obj.GetState(*key)
 				rawNode := valueToLeaf(v)
 				rawNodeHash := trie.HashLeaf(rawNode)
@@ -721,9 +802,33 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 				// what is the current value
 				keyNodes[rawNodeHash] = rawNode
 			}
+        case selfDestructChange:
+            // here we check off the ones that are in createdAndDeleted.
+            // The way deletes work is that the "origin" field of an account that was created
+            // will be nil. When it is time to commit and flush to the db, these deletes 
+            // are ignored because it is a nil -> nil transition in the backing database
+            addr := &(logEntry.account)
+            _, ok := createdAndDeleted[*addr]
+            if ok {
+                // we can now mark this entry as FALSE
+                createdAndDeleted[*addr] = false
+            }
 		default:
 		}
 	}
+
+    // now we sanity check that all the accounts we thought were created and deleted
+    // in the same block were ones where we saw a selfDestruct
+    for addr, checked := range createdAndDeleted {
+        if checked {
+            // this means we never saw a selfDestruct for it because 
+            // that's the only reason that it wouldn't be in stateObjects if 
+            // it wasn't reverted
+            log.Error("Account in createdAndDeleted didn't have a corresponding selfDestruct", "addr", addr)
+            panic("log finalize createdAndDeleted sanity check Failed!")
+        }
+    }
+    
 	// no we've stored all the path hashes and the raw nodes for each key that is gotten
 	// now we log all of this information
 	// sanity checking: assert that all the raw nodes correspond to hashes in the other set
@@ -743,12 +848,12 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 	// we shouldn't cache these since they will apply to the next transaction as well
 	// instead, we should mark when one transaction ends and another begins (but this is just the same as 
 	if conflict(accountNodes, keyNodes) {
-		//panic("Conflict in the two maps")
+		panic("Conflict in the two maps")
 		log.Error("Conflict in the two maps")
-		return false, nil, nil, nil, nil, nil
+		return false, nil, nil, nil, nil, nil, nil, nil
 	}
 	
-	return true, emptys, accounts, accountNodes, keys, keyNodes
+	return true, emptys, accounts, accountNodes, keys, keyNodes, createdAndDeleted, revertedCreateObject
 }
 
 func conflict(m1 map[common.Hash][]byte, m2 map[common.Hash][]byte) bool {

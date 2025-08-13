@@ -121,6 +121,21 @@ func copyLoggedJournals(l [][]LogJournalEntry) [][]LogJournalEntry {
 	return res
 }
 
+func addressCopy2d(l [][]common.Address) [][]common.Address {
+	res := make([][]common.Address, len(l))
+	for i, addrs := range l {
+		entry := make([]common.Address, len(addrs))
+		for j, a := range addrs {
+			//entry[j] = make([]common.Address, len(a))
+			//copy(entry[j], a.Bytes())
+			entry[j].SetBytes(a.Bytes())	
+		}
+		res[i] = entry
+	}
+	return res
+}
+
+
 func (l LogJournalEntry) copy() LogJournalEntry {
 	return LogJournalEntry{
 			Entry: l.Entry.copy(),
@@ -143,6 +158,15 @@ type journal struct {
 
 	validRevisions []revision
 	nextRevisionId int
+	// that the loggedOffset tells us how many entries in the 
+	// journal correspond to our own getStateObject/getStorageEntry
+	// entries or reverted entries that we keep in logged journals. 
+	// entry journal[len(journal)-1] is either:
+	//     * loggedJournal[len(journal)-1+offset] if it is not reverted
+	//	   * or the highest entry before len(journal)-1+offset that is not reverted
+	// these indices are only used to iterate through the journal (for revert)
+	// or append and looking at the offset and the reverted entries makes it easy
+	// to do
 	logEntries []LogJournalEntry
 	logDirties map[common.Address]int
 	txLogEntries [][]LogJournalEntry
@@ -238,7 +262,7 @@ func (j *journal) findReverseOffset(idx int, prev int) (success bool, offset int
 		if j.logEntries[i].Reverted == true || getobjectok || getstorageok || getemptyok {
 			offset--
 		} else {
-			log.Info("Returning offset", fmt.Sprintf("log entry[%d+%d=%d", idx, offset, idx+offset), j.logEntries[i].toString())
+			log.Debug("Returning offset", fmt.Sprintf("log entry[%d+%d=%d", idx, offset, idx+offset), j.logEntries[i].toString())
 			return true, offset
 		}
 	}
@@ -309,7 +333,7 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
     //        sb.WriteString(logJournalToString(j.logEntries))
     //        sb.WriteString("\n")
     //}
-    log.Info("Starting offset", "offset", tempOffset)
+    log.Debug("Starting offset", "offset", tempOffset)
 	for i := len(j.entries) - 1; i >= snapshot; i-- {
 		if !j.loggingFailure {
 			// if the current logEntry is reverted loop until to find an offset that isn't
@@ -320,7 +344,7 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 			if j.logEntries[i+tempOffset].Reverted == true || getobjectok || getstorageok || getemptyok {
 				success, offset := j.findReverseOffset(i, tempOffset)
 				tempOffset = offset
-				log.Info("Revert", "returned oreverse offset", tempOffset)
+				log.Debug("Revert", "returned oreverse offset", tempOffset)
 				if success {
 					_, getobjectok = (j.logEntries[i+tempOffset].Entry).(getStateObjectEntry)
 					_, getstorageok = (j.logEntries[i+tempOffset].Entry).(getStorageEntry)
@@ -328,8 +352,8 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 					// NOTE: the below commented out conditional is no longer valid because you can reverse because of gets rather than revertes so i+offset+1 doesn't always have to be reverted.
 					//if !(j.logEntries[i+offset].reverted == false && j.logEntries[i+offset+1].reverted == true) || getobjectok || getstorageok {
 					if !(j.logEntries[i+tempOffset].Reverted == false) || getobjectok || getstorageok || getemptyok {
-						log.Info("Computed", "offset", tempOffset, "idx", i)
-						log.Info("SPecial cases", "gets", numGets(j.logEntries), "noGetReverted", noGetReverted(j.logEntries))
+						log.Debug("Computed", "offset", tempOffset, "idx", i)
+						log.Debug("SPecial cases", "gets", numGets(j.logEntries), "noGetReverted", noGetReverted(j.logEntries))
 						//panic(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v, isEmptyDelete=%v", j.logEntries[i+offset].Reverted, j.logEntries[i+offset+1].Reverted, getobjectok, getstorageok, getemptyok))
 						log.Error(fmt.Sprintf("Offset compute is off. j[i+offset] = %v, j[i+offset+1] = %v, isGetObject=%v, isGetStorage=%v, isEmptyDelete=%v", j.logEntries[i+tempOffset].Reverted, j.logEntries[i+tempOffset+1].Reverted, getobjectok, getstorageok, getemptyok))
 						j.loggingFailure = true
@@ -341,18 +365,18 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 		} 
 
 		// Undo the changes made by the operation
-		log.Info("Reverting entry")
+		log.Debug("Reverting entry")
 		j.entries[i].revert(statedb)
-		log.Info("Reverting", fmt.Sprintf("entry[%d]", i), j.entries[i].toString())
+		log.Debug("Reverting", fmt.Sprintf("entry[%d]", i), j.entries[i].toString())
 		switch tlog := (j.entries[i]).(type) {
 		case createObjectChange:
-			log.Info("createObjectChange revert", "addr", tlog.account)
+			log.Debug("createObjectChange revert", "addr", tlog.account)
 		}
 
 		if !j.loggingFailure {
 			// in log entries just mark them reverted
 			j.logEntries[i+tempOffset].logRevert(statedb)
-			log.Info("Reverting", fmt.Sprintf("logEntry[%d+%d=%d]", i, tempOffset, i+tempOffset), j.logEntries[i+tempOffset].toString())
+			log.Debug("Reverting", fmt.Sprintf("logEntry[%d+%d=%d]", i, tempOffset, i+tempOffset), j.logEntries[i+tempOffset].toString())
 			if j.logEntries[i+tempOffset].Reverted == false {
 				//panic("logRevert not changed actual object")
 				log.Error("logRevert PANIC not changed actual object")
@@ -360,7 +384,7 @@ func (j *journal) revert(statedb *StateDB, snapshot int) {
 			}
 			j.logOffset++
 		} else {
-			log.Info("Journal revert logging failure")
+			log.Debug("Journal revert logging failure")
 		}
 
 		// Drop any dirty tracking induced by the change
@@ -870,7 +894,7 @@ func (ch createObjectChange) toString() string {
 }
 
 func (ch createObjectChange) revert(s *StateDB) {
-	log.Info("createObjectChange delete", "addr", ch.account)
+	log.Debug("createObjectChange delete", "addr", ch.account)
 	delete(s.stateObjects, ch.account)
 }
 

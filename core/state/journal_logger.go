@@ -480,10 +480,10 @@ func GetCreatedKeys(j [][]LogJournalEntry) map[KeyKey]bool {
 
 				if entry.prevvalue.Cmp(zeroVal) == 0 || entry.newvalue.Cmp(zeroVal) != 0 {
 					// a storage slot went from not 0 to 0
-					log.Info("Deleted key", "addr", entry.account, "key", entry.key)
+					log.Debug("Deleted key", "addr", entry.account, "key", entry.key)
 					finalSet[KeyKey{entry.account, entry.key}] = true
 				} else {
-					log.Info("Storage sot not set", "addr", entry.account, "key", entry.key)
+					log.Debug("Storage sot not set", "addr", entry.account, "key", entry.key)
 				}
 			default:
 			}
@@ -504,10 +504,10 @@ func GetDeletedKeys(j [][]LogJournalEntry) map[KeyKey]bool {
 
 				if entry.prevvalue.Cmp(zeroVal) != 0 || entry.newvalue.Cmp(zeroVal) == 0 {
 					// if the old value had something and the new one is set to 0
-					log.Info("Deleted key", "addr", entry.account, "key", entry.key)
+					log.Debug("Deleted key", "addr", entry.account, "key", entry.key)
 					finalSet[KeyKey{entry.account, entry.key}] = true
 				} else {
-					log.Info("Storage change not set to 0", "addr", entry.account, "key", entry.key)
+					log.Debug("Storage change not set to 0", "addr", entry.account, "key", entry.key)
 				}
 			default:
 			}
@@ -574,7 +574,7 @@ func GetKeysAlwaysZero(j [][]LogJournalEntry) map[KeyKey]bool {
 					if entry.newvalue.Cmp(common.Hash{}) != 0 {
 						panic("comparison error")
 					}
-					log.Info("Deleted key", "addr", entry.account, "key", entry.key)
+					log.Debug("Deleted key", "addr", entry.account, "key", entry.key)
 					//finalSet[k] = true
 				} else {
 					// implcit in this condition is that prevvalue and newvalue can't be
@@ -584,7 +584,7 @@ func GetKeysAlwaysZero(j [][]LogJournalEntry) map[KeyKey]bool {
 						// it's changed to zero
 						delete(finalSet, k)
 					}
-					log.Info("Storage change not set to 0", "addr", entry.account, "key", entry.key)
+					log.Debug("Storage change not set to 0", "addr", entry.account, "key", entry.key)
 				}
 			default:
 			}
@@ -668,11 +668,11 @@ func GetCreatedAccounts(j [][]LogJournalEntry) map[common.Address]bool {
 			case selfDestructChange:
 				_, ok := accountsCreated[entry.account]
 				if ok {
-					log.Info("Deleting an account created in the same transaction", "addr", entry.account)
+					log.Debug("Deleting an account created in the same transaction", "addr", entry.account)
 				}
 				_, ok = finalSet[entry.account]
 				if ok {
-					log.Info("Deleting an existing account", "addr", entry.account)
+					log.Debug("Deleting an existing account", "addr", entry.account)
 				}
 				accountsDeleted[entry.account] = true
 			default: continue
@@ -802,7 +802,7 @@ func OrderAccesses(journals [][]LogJournalEntry, root common.Hash, accounts map[
 				access := createObjectChangeAccess(addr, v, accounts, accountNodes)
 				accesses = append(accesses, access...)
 
-				log.Info("createObjectEntry", "addr", addr)
+				log.Debug("createObjectEntry", "addr", addr)
 			case createContractChange:
 				// the same as above 
 				addr := logEntry.account
@@ -816,7 +816,7 @@ func OrderAccesses(journals [][]LogJournalEntry, root common.Hash, accounts map[
 				v, _ := t.GetWithPath(addr.Bytes())
 				access := createContractChangeAccess(addr, v, accounts, accountNodes)
 				accesses = append(accesses, access...)
-				log.Info("Create contract entry", "addr", addr)
+				log.Debug("Create contract entry", "addr", addr)
 			case getStateObjectEntry:
 				// here we do everything and log it, this will give you a path even if the key doesn't exist
 				addr := logEntry.account

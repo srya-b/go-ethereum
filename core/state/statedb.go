@@ -184,6 +184,8 @@ type StateDB struct {
 	nodesForAccount map[common.Hash][]byte
 	nodesForKey map[common.Hash][]byte
 	loggedJournals [][]LogJournalEntry
+	loggedCreateDeletes [][]common.Address
+	loggedRevertCreates [][]common.Address
 	loggedDirties []map[common.Address]int
 	loggedOffsets []int
 	accountsInTrie map[common.Address]bool
@@ -239,6 +241,8 @@ type PreLog struct {
 	AccountNodes map[common.Hash][]byte
 	Keys map[KeyKey][]common.Hash
 	KeyNodes map[common.Hash][]byte
+	CreateDelete [][]common.Address
+	RevertCreates [][]common.Address
 }
 
 type PostLog struct {
@@ -357,7 +361,7 @@ func (s *StateDB) StartLogger(d string, b *big.Int) bool {
 			//panic(err)
 			return false
 		} else {
-			log.Info("Log directory already exists", "fn", d)
+			log.Debug("Log directory already exists", "fn", d)
 		}
 	} else {
 		log.Error("Called StartLogger twice")
@@ -762,7 +766,7 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 // getStateObject will return a non-nil account after SelfDestruct.
 func (s *StateDB) SelfDestruct(addr common.Address) uint256.Int {
 	if s.logState {
-		log.Info("SelfDestruct address", "addr", addr)
+		log.Debug("SelfDestruct address", "addr", addr)
 	}
 	stateObject := s.getStateObject(addr)
 	var prevBalance uint256.Int
@@ -855,7 +859,7 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 	}
 	// Short circuit if the account is already destructed in this block.
 	if _, ok := s.stateObjectsDestruct[addr]; ok {
-		log.Info("destructed")
+		log.Debug("destructed")
 		// let it return here because a destruted object is always known and instantly checked
 		// eventually the advice or whatever can inform that something is destroyed, and we don't
 		// want to cache anything explored here
@@ -984,6 +988,8 @@ func (s *StateDB) Copy() *StateDB {
 		keysInTrie:           maps.Clone(s.keysInTrie),
 		emptys:				  make([][]common.Address, len(s.emptys)),
 		loggedJournals:		  copyLoggedJournals(s.loggedJournals),
+		loggedCreateDeletes:  addressCopy2d(s.loggedCreateDeletes),
+		loggedRevertCreates:  addressCopy2d(s.loggedRevertCreates),
 		logState:			  s.logState,
 		numPre:				  s.numPre,
 		numPost:			  s.numPost,
@@ -1065,17 +1071,27 @@ func (s *StateDB) GetRefund() uint64 {
 	return s.refund
 }
 
+func setToList[K comparable](m map[K]bool) []K {
+	out := make([]K, len(m))
+	i := 0
+	for k := range m {
+		out[i] = k
+		i++
+	}
+	return out
+}
+
 // Finalise finalises the state by removing the destructed objects and clears
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
 func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 
 	if s.logState {
-		log.Info("Log state finalize")
-		log.Info("Root hash", "r", s.trie.Hash())
+		log.Info("Finalize Tx.")
+		log.Debug("Root hash", "r", s.trie.Hash())
 		//s.accountsSeen, s.nodesForAccount, s.keysSeen, s.nodesForKey = s.LogFinalize()
-		success, emptys, accounts, accountNodes, keys, keyNodes := s.LogFinalize()
-		log.Info("FInished logFInalize")
+		success, emptys, accounts, accountNodes, keys, keyNodes, createdAndDeleted, revertedCreatedObjects := s.LogFinalize()
+		log.Debug("FInished logFInalize")
 
 		// if we failed at log finalize (one of the panic conditions was hit)
 		// turn off logging and don't do anything
@@ -1088,6 +1104,8 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 			s.keysSeen = mergeMaps(s.keysSeen, keys)
 			s.nodesForKey = mergeMaps(s.nodesForKey, keyNodes)
 			s.emptys = append(s.emptys, emptys)
+			s.loggedCreateDeletes = append(s.loggedCreateDeletes, setToList(createdAndDeleted))
+			s.loggedRevertCreates = append(s.loggedRevertCreates, setToList(revertedCreatedObjects))
 			// create a trie from this data
 			rootHash, rootRaw := s.trie.RootBytes()
 			if rootRaw != nil {
@@ -1162,10 +1180,10 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		if obj.selfDestructed || (deleteEmptyObjects && obj.empty() && !isZombie) {
 			if s.logState {
 				if obj.empty() {
-					log.Info("Address is empty", "addr", obj.address)
+					log.Debug("Address is empty", "addr", obj.address)
 				} 
 				if obj.selfDestructed {
-					log.Info("Address was self destructed", "addr", obj.address)
+					log.Debug("Address was self destructed", "addr", obj.address)
 				}
 			}
 			delete(s.stateObjects, obj.address)
@@ -1191,7 +1209,7 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 		}
 	}
 
-	log.Info("Clear journal and refund")
+	log.Debug("Clear journal and refund")
 	s.clearJournalAndRefund()
 }
 
@@ -1284,6 +1302,7 @@ func (s *StateDB) logPreData(r common.Hash) bool {
 		AccountNodes: s.nodesForAccount,
 		Keys: s.keysSeen,
 		KeyNodes: s.nodesForKey,
+		CreateDelete: s.loggedCreateDeletes,
 	}
 
 	jsonData, err := json.Marshal(data)
@@ -1352,7 +1371,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 		if !s.postCompleted {
 			log.Info("IntermediateRoot")
 		} else {
-			log.Info("DONT DO: intermediate root")
+			log.Debug("DONT DO: intermediate root")
 		}
 	}
 
@@ -1392,7 +1411,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	if s.logState {
 		// get the current trie's root node
 		rootHash := s.trie.Hash()
-		log.Info("pre Root hash", "r", s.trie.Hash())
+		log.Debug("pre Root hash", "r", s.trie.Hash())
 		success := s.logPreData(rootHash)
 		if !success {
 			log.Error("IntermediateRoot hit a panic condition, STOPPING statedb Logging")
@@ -1545,8 +1564,8 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 
 	if s.logState {
 		//if !s.postCompleted {
-		log.Info("logging post data", "oprefetcher nil", s.prefetcher != nil, "is witness", s.witness != nil)
-		log.Info("post Root hash", "r", s.trie.Hash())
+		log.Debug("logging post data", "oprefetcher nil", s.prefetcher != nil, "is witness", s.witness != nil)
+		log.Debug("post Root hash", "r", s.trie.Hash())
 		success := s.logPostData(deletedAddrs, s.trie.Hash())
 		if !success {
 			s.logState = false
@@ -1601,6 +1620,8 @@ func (s *StateDB) SetTxContext(thash common.Hash, ti int) {
 func (s *StateDB) clearJournalAndRefund() {
 	s.journal.reset()
 	s.refund = 0
+	// at the end of processing every journal, we want to log
+	// all the complete journal, the dirties, and the loggedOffsets
 	s.loggedJournals = append(s.loggedJournals, s.journal.logEntries)
 	s.loggedDirties = append(s.loggedDirties, s.journal.logDirties)
 	s.loggedOffsets = append(s.loggedOffsets, s.journal.logOffset)
@@ -1936,7 +1957,7 @@ func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool) (*stateU
 	origin := s.originalRoot
 	s.originalRoot = root
 	if s.logState {
-		log.Info("[commit] return newstateupdate")
+		log.Debug("[commit] return newstateupdate")
 	}
 	return newStateUpdate(noStorageWiping, origin, root, deletes, updates, nodes, s.arbExtraData.activatedWasms), nil
 }
@@ -1945,11 +1966,11 @@ func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool) (*stateU
 // to the configured data stores.
 func (s *StateDB) commitAndFlush(block uint64, deleteEmptyObjects bool, noStorageWiping bool) (*stateUpdate, error) {
 	if s.logState {
-		log.Info("[commitandflush] calling commit")
+		log.Debug("[commitandflush] calling commit")
 	}
 	ret, err := s.commit(deleteEmptyObjects, noStorageWiping)
 	if s.logState {
-		log.Info("[commitandflush] done commit")
+		log.Debug("[commitandflush] done commit")
 	}
 	if err != nil {
 		return nil, err
@@ -2005,7 +2026,7 @@ func (s *StateDB) commitAndFlush(block uint64, deleteEmptyObjects bool, noStorag
 	s.reader, _ = s.db.Reader(s.originalRoot)
 	s.arbExtraData.unexpectedBalanceDelta.Set(new(big.Int))
 	if s.logState {
-		log.Info("[commitandflush] returning")
+		log.Debug("[commitandflush] returning")
 	}
 	return ret, err
 }
@@ -2026,11 +2047,11 @@ func (s *StateDB) commitAndFlush(block uint64, deleteEmptyObjects bool, noStorag
 // should not occur.
 func (s *StateDB) Commit(block uint64, deleteEmptyObjects bool, noStorageWiping bool) (common.Hash, error) {
 	if s.logState {
-		log.Info("Commit start")
+		log.Debug("Commit start")
 	}
 	ret, err := s.commitAndFlush(block, deleteEmptyObjects, noStorageWiping)
 	if s.logState {
-		log.Info("COmmit done")
+		log.Debug("Commit done")
 	}
 	if err != nil {
 		return common.Hash{}, err

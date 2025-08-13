@@ -384,7 +384,7 @@ func (s *stateObject) updateRoot() {
 	}
     target := common.HexToAddress("0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE")
     if s.address.Cmp(target) == 0 {
-        log.Info("target update root", "old", s.data.Root, "new", tr.Hash())
+        log.Debug("target update root", "old", s.data.Root, "new", tr.Hash())
     }
 	s.data.Root = tr.Hash()
 }
