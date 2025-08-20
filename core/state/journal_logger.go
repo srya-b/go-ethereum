@@ -12,6 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
+type Set map[common.Address]bool
+//type Set[K comparable] = map[K]bool
+
 /// Journal stuff
 
 type generic struct {
@@ -459,6 +462,7 @@ func (l *LogJournalEntry) UnmarshalJSON(b []byte) error {
     return nil
 }
 
+
 func GetCreatedAccountsHashed(j [][]LogJournalEntry) map[common.Hash]bool {
 	m := GetCreatedAccounts(j)
 	out := make(map[common.Hash]bool)
@@ -471,19 +475,36 @@ func GetCreatedAccountsHashed(j [][]LogJournalEntry) map[common.Hash]bool {
 
 func GetCreatedKeys(j [][]LogJournalEntry) map[KeyKey]bool {
 	finalSet := make(map[KeyKey]bool)
+	var zeroVal common.Hash
+	zeroVal.SetBytes(nil)
+
+	//targeta := common.HexToAddress("0x52Aa899454998Be5b000Ad077a46Bbe360F4e497")
+	//targetk := common.HexToHash("0xd943cec1dfc617bf9515058376abfab0217f98cce018735f02efd4abd3453ad8")
+
 	for _, jn := range j {
 		for _, e := range jn {
 			switch entry := (e.Entry).(type) {
 			case storageChange:
-				var zeroVal common.Hash
-				zeroVal.SetBytes(nil)
+				if e.Reverted {
+					continue
+				}
 
-				if entry.prevvalue.Cmp(zeroVal) == 0 || entry.newvalue.Cmp(zeroVal) != 0 {
+				// if the storage slot goes from 0 to non-0 it was created
+				//if entry.prevvalue.Cmp(zeroVal) == 0 || entry.newvalue.Cmp(zeroVal) != 0 {
+				if entry.origvalue.Cmp(zeroVal) == 0 && entry.newvalue.Cmp(zeroVal) != 0 {
 					// a storage slot went from not 0 to 0
-					log.Debug("Deleted key", "addr", entry.account, "key", entry.key)
+					//if entry.account.Cmp(targeta) == 0 && entry.key.Cmp(targetk) == 0 {
+					//	log.Debug("Created key", "addr", entry.account, "key", entry.key, "orgvalue", entry.origvalue, "prevalue", entry.prevvalue, "newvalue", entry.newvalue)
+					//}
 					finalSet[KeyKey{entry.account, entry.key}] = true
+				} else if entry.origvalue.Cmp(zeroVal) == 0 {
+					// implies orig was 0 and the newval is also 0 so it is no longer "created"
+					if _, ok := finalSet[KeyKey{entry.account, entry.key}]; ok {
+						delete(finalSet, KeyKey{entry.account, entry.key})
+					}
 				} else {
-					log.Debug("Storage sot not set", "addr", entry.account, "key", entry.key)
+					// otherwise it's still 0
+					//log.Debug("Storage sot not set", "addr", entry.account, "key", entry.key)
 				}
 			default:
 			}
@@ -492,7 +513,8 @@ func GetCreatedKeys(j [][]LogJournalEntry) map[KeyKey]bool {
 	return finalSet
 }
 
-
+// opposite of the above where it logs storage slot going
+// from non-zero to zero
 func GetDeletedKeys(j [][]LogJournalEntry) map[KeyKey]bool {
 	finalSet := make(map[KeyKey]bool)
 	for _, jn := range j {
@@ -502,33 +524,18 @@ func GetDeletedKeys(j [][]LogJournalEntry) map[KeyKey]bool {
 				var zeroVal common.Hash
 				zeroVal.SetBytes(nil)
 
-				if entry.prevvalue.Cmp(zeroVal) != 0 || entry.newvalue.Cmp(zeroVal) == 0 {
+				//if entry.prevvalue.Cmp(zeroVal) != 0 || entry.newvalue.Cmp(zeroVal) == 0 {
+				if entry.origvalue.Cmp(zeroVal) != 0 || entry.newvalue.Cmp(zeroVal) == 0 {
 					// if the old value had something and the new one is set to 0
 					log.Debug("Deleted key", "addr", entry.account, "key", entry.key)
 					finalSet[KeyKey{entry.account, entry.key}] = true
+				} else if entry.origvalue.Cmp(zeroVal) != 0 {
+					if _, ok := finalSet[KeyKey{entry.account, entry.key}]; ok {
+						delete(finalSet, KeyKey{entry.account, entry.key})
+					}
 				} else {
 					log.Debug("Storage change not set to 0", "addr", entry.account, "key", entry.key)
 				}
-			default:
-			}
-		}
-	}
-	return finalSet
-}
-
-func GetDeletedAccounts(j [][]LogJournalEntry) map[common.Address]bool {
-	finalSet := make(map[common.Address]bool)
-	for _, jn := range j {
-		for _, e := range jn {
-			switch entry := (e.Entry).(type) {
-			case createObjectChange:
-				// if it is created again after destruct then log that
-				_, ok := finalSet[entry.account]
-				if ok {
-					delete(finalSet, entry.account)
-				}
-			case selfDestructChange:
-				finalSet[entry.account] = true
 			default:
 			}
 		}
@@ -574,7 +581,7 @@ func GetKeysAlwaysZero(j [][]LogJournalEntry) map[KeyKey]bool {
 					if entry.newvalue.Cmp(common.Hash{}) != 0 {
 						panic("comparison error")
 					}
-					log.Debug("Deleted key", "addr", entry.account, "key", entry.key)
+					//log.Debug("Deleted key", "addr", entry.account, "key", entry.key)
 					//finalSet[k] = true
 				} else {
 					// implcit in this condition is that prevvalue and newvalue can't be
@@ -584,7 +591,7 @@ func GetKeysAlwaysZero(j [][]LogJournalEntry) map[KeyKey]bool {
 						// it's changed to zero
 						delete(finalSet, k)
 					}
-					log.Debug("Storage change not set to 0", "addr", entry.account, "key", entry.key)
+					//log.Debug("Storage change not set to 0", "addr", entry.account, "key", entry.key)
 				}
 			default:
 			}
@@ -593,46 +600,68 @@ func GetKeysAlwaysZero(j [][]LogJournalEntry) map[KeyKey]bool {
 	return finalSet
 }
 
-func GetEmptyDeletes(emptys [][]common.Address, l [][]LogJournalEntry) map[common.Address]bool {
+// The emptys list holds all the accounts that were empty at the end of the corresponding 
+// journal. This function should go through that list and filter out the ones that are 
+// created again in the future and eventually commited into the trie. The function returns
+// the real set of accounts deleted because they were empty and no longer exist.
+// IMPORTANT: we need to make sure that this function only deals with empty deletes
+// and nothing else or we might end up double counting things that are in the other
+// maps of the log like createdAndDeleted or real deletes/creates
+func GetEmptyDeletes(emptys [][]common.Address, l [][]LogJournalEntry) Set {
 	if len(emptys) != len(l) {
 		panic(fmt.Sprintf("Unequal number of journals. emtpys=%v, journal=%v", len(emptys), len(l)))
 	}
 
-	finalSet := make(map[common.Address]bool)
+	// the real empty set will be used by "empty" lists
+	// that need to check whether this was empty deleted in a perviou
+	// "empty" list
+	realEmptys := make(Set)
+	
 	for i := 0; i < len(emptys); i++ {
-		cleared := make(map[common.Address]bool)
-		// if there is an empty then we don't need to scan this journal
+		// use a temporary map because we want realEmptys to only be
+		// the empty deletes in previous lists so we can search and delete
+		// them if we see a createObjectChange in this list 
+		emptyDeletesThisRound := make(Set)
+		// We have to go in lock step with the corresponding journal
+		// for each "empty" list. First get all the empties in this
+		// list, then go through the journal. If we see a createObjectChange
+		// for a 
 		for _, addr := range emptys[i] {
-			if _, ok := finalSet[addr]; ok {
-				panic(fmt.Sprintf("Double empty delete address %v", addr))
+			_, ok := emptyDeletesThisRound[addr]
+			if ok {
+				// should be seeing this twice!!
+				panic(fmt.Sprintf("Two empty deletes in the same list: %v", addr))
 			}
-			// which are deleted
-			cleared[addr] = true
+			// since emptys are processed at the END of the logging, 
+			// they can only be invalidated by future "empty" lists
+			emptyDeletesThisRound[addr] = true
 		}
 
-		// iterate over the journal and ignore deletes
+		// now go through the journal and see if there are any in realEmptys
+		// that need to be deleted. We don't care about the selfDestructs
+		// that occur because they aren't deletions due to being empty
 		for _, e := range l[i] {
 			switch entry := (e.Entry).(type) {
 			case createObjectChange:
-				// if this is already in created then ignore it it is eventually deleted
-				addr := entry.account
-				if _, ok := cleared[addr]; ok {
+				// if this is a create for something empty in this round then ignore it
+				if _, thisRound := emptyDeletesThisRound[entry.account]; thisRound {
 					continue
 				}
-				if _, ok := finalSet[addr]; ok {
-					// remove it
-					delete(finalSet, addr)
+				// if this account was empty deleted in a previous iteration (i.e.
+				// it is in realEmptys, then remove it from there it exists
+				if _, deleted := realEmptys[entry.account]; deleted {
+					delete(realEmptys, entry.account)
 				}
-			default:
 			}
 		}
-		
-		// move cleared into finalSet
-		for addr := range cleared {
-			finalSet[addr] = true
+
+		// put these deletes into the final set
+		for addr := range emptyDeletesThisRound {
+			realEmptys[addr] = true
 		}
-	}		
-	return finalSet
+	}
+	
+	return realEmptys
 }
 
 func PrintLogJournal(j []LogJournalEntry) {
@@ -656,42 +685,85 @@ func PrintLogJournals(j [][]LogJournalEntry) {
 	}
 }
 
-func GetCreatedAccounts(j [][]LogJournalEntry) map[common.Address]bool {
-	finalSet := make(map[common.Address]bool)
+
+// Determine which accounts were created in this transaction. We 
+// need to be careful to check for create changes that were reverted.
+func GetCreatedAccounts(j [][]LogJournalEntry) Set {
+	accountsCreated := make(Set)
 	for _, jn := range j {
-		accountsCreated := make(map[common.Address]bool)
-		accountsDeleted := make(map[common.Address]bool)
 		for _, e := range jn {
 			switch entry := (e.Entry).(type) {
 			case createObjectChange:
-				accountsCreated[entry.account] = true
-			case selfDestructChange:
+				// A create object change should be added to the map 
+				// only if this entry wasn't reverted. 
+				if e.Reverted {
+					continue
+				}
+				// check that it wasn't created previously, that's anomalous
 				_, ok := accountsCreated[entry.account]
 				if ok {
-					log.Debug("Deleting an account created in the same transaction", "addr", entry.account)
+					log.Error("Two un-reverted createObject changes to the same account", "addr", entry.account)
+					panic("err")
 				}
-				_, ok = finalSet[entry.account]
-				if ok {
-					log.Debug("Deleting an existing account", "addr", entry.account)
+				accountsCreated[entry.account] = true
+			case selfDestructChange:
+				// it is important to only look at the selfDestructs that have a corresponding
+				// createObjectChange, becaused we only care about created accounts
+				// if the selfDestruct was reverted, then whereever the original
+				// create change is, whether itself reverted or now, we leave it
+				// alone.
+				if e.Reverted {
+					continue
 				}
-				accountsDeleted[entry.account] = true
+
+				_, createdInThisJournal := accountsCreated[entry.account]
+
+				if createdInThisJournal {
+					// just remove it from the accountsCreatedSet if it's there
+					delete(accountsCreated, entry.account)
+					continue
+				} 
+				// if it wasn't created in this set of journals then we don't really care
 			default: continue
 			}
 		}
-		for addr := range accountsCreated {
-			finalSet[addr] = true
-		}
-		for addr := range accountsDeleted {
-			_, ok := finalSet[addr]
-			if !ok {
-				log.Error("Detleding account not created", "addr", addr)
-			} else {
-				delete(finalSet, addr)
+
+	}
+	return accountsCreated
+}
+
+// Gets only the accounts that existed before this set of journals (i.e.
+// are in the trie). Ignore the ones created here and deleted here because
+// those don't change the trie.
+func GetDeletedAccounts(j [][]LogJournalEntry) Set {
+	// need the set of created accounts to filter them out of the 
+	// accounts the function returns
+	createdAccounts := GetCreatedAccounts(j)
+	deletedAccounts := make(Set)
+	// We don't care about the selfDestructs
+	// that occur because they aren't deletions due to being empty
+	for _, jn := range j {
+		for _, e := range jn {
+			switch entry := (e.Entry).(type) {
+			case selfDestructChange:
+				// We only care about this selfDestruct if it wasn't reverted
+				// and it was for an account NOT created in this set of 
+				// journals.
+				_, wasCreated := createdAccounts[entry.account]
+				_, alreadyDeleted := deletedAccounts[entry.account]
+				if !wasCreated && !e.Reverted {
+					if alreadyDeleted {
+						panic(fmt.Sprintf("Two deletes to this same account: %v", entry.account))
+					}
+					deletedAccounts[entry.account] = true
+				}					
+			default:
 			}
 		}
 	}
-	return finalSet
+	return deletedAccounts
 }
+
 
 func isAccount(addr common.Address, rawNode []byte) bool {
 	test := new(types.StateAccount)
@@ -881,3 +953,4 @@ func copyReverse[T any](l []T) []T {
 	slices.Reverse(ret)
 	return ret
 }
+

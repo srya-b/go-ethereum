@@ -2934,7 +2934,19 @@ func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 	}
 }
 
-func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte, addr common.Hash, storage bool) []common.Hash {
+func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
+	testMap := make(map[K]V)
+	for hn, raw := range map1 {
+		testMap[hn] = raw
+	}
+	for hn, raw := range map2 {
+		testMap[hn] = raw
+	}
+	return testMap
+}
+
+//func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte, addr common.Hash, storage bool) []common.Hash {
+func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte, addr common.Hash, storage bool) map[common.Hash][]common.Hash {
 	switch n := (n).(type) {
 	case valueNode: 
 		storageRoot, _, exists := getStorageTrie(n, preimages)
@@ -2942,19 +2954,24 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte,
 		if exists {
 			// add the root to the map and recurse
 			//return []common.Hash{common.BytesToHash(k)}
-			keysInAccount := TrieFromNodeCountKeys(storageRoot, preimages, []byte{}, common.BytesToHash(k), true)
-			return keysInAccount 
-		} else {
-			if storage {
-				log.Info("Key", "addr", addr, "key", common.BytesToHash(k))
-				return []common.Hash{common.BytesToHash(k)}
-				//m := make(map[common.Hash][]common.Hash)
-				//m[addr] = []common.Hash{common.BytesToHash(k)}
-				//return m
-			} else {
-				return []common.Hash{}
-				//return make(map[common.Hash][]common.Hash)
+			//keysInAccount := TrieFromNodeCountKeys(storageRoot, preimages, []byte{}, common.BytesToHash(k), true)
+			keysInAccount := TrieFromNodeCountAccounts(storageRoot, preimages, []byte{})
+			return map[common.Hash][]common.Hash{
+						common.BytesToHash(k): keysInAccount,
 			}
+			//return keysInAccount 
+		} else {
+			return make(map[common.Hash][]common.Hash)
+			//if storage {
+			//	log.Info("Key", "addr", addr, "key", common.BytesToHash(k))
+			//	return []common.Hash{common.BytesToHash(k)}
+			//	//m := make(map[common.Hash][]common.Hash)
+			//	//m[addr] = []common.Hash{common.BytesToHash(k)}
+			//	//return m
+			//} else {
+			//	return []common.Hash{}
+			//	//return make(map[common.Hash][]common.Hash)
+			//}
 		}
 	case *shortNode:
 		// shortNodes are extensions or valueNodes
@@ -2971,7 +2988,8 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte,
 			panic(fmt.Sprintf("Failed to check fullNode. node=%v", n))
 		}
 		//finalList := []common.Hash{}
-		final := []common.Hash{}
+		//final := []common.Hash{}
+		final := make(map[common.Hash][]common.Hash)
 		//final := make(map[common.Hash][]common.Hash)
 		for pos, child := range &n.Children {
 			// save all hashes from subtrie
@@ -2980,7 +2998,8 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte,
 				_, ok := child.(hashNode)
 				if !ok { panic("child of full node not a hashnode") }
 				accts := TrieFromNodeCountKeys(child, preimages, append(key, byte(pos)), addr, storage)
-				final = append(final, accts...)
+				//final = append(final, accts...)
+				final = mergeMaps(final, accts)
 				//for ha, ks := range accts {
 				//	final[ha] = ks
 				//}
@@ -2997,7 +3016,8 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte,
 		}
 		actualNodeRaw, exists := preimages[realHash]
 		actualNode, err := decodeNode(nil, actualNodeRaw)
-		final := []common.Hash{}
+		//final := []common.Hash{}
+		final := make(map[common.Hash][]common.Hash)
 		//final := make(map[common.Hash][]common.Hash)
 		// if it is expanded go down the path
 		if err == nil && exists {
