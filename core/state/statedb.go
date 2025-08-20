@@ -1218,11 +1218,28 @@ type KeyKey struct {
 	key common.Hash
 }
 
+type HashedKeyKey struct {
+	hashAddr common.Hash
+	key common.Hash
+}
+
+func NewHashedKeyKey(h common.Hash, k common.Hash) HashedKeyKey {
+	return HashedKeyKey{h, k}
+}
+
+func (k HashedKeyKey) Key() common.Hash {
+	return k.key
+}
+
+func (k HashedKeyKey) HashAddr() common.Hash {
+	return k.hashAddr
+}
+
 func (k KeyKey) Key() common.Hash {
 	return k.key
 }
 
-func ( k KeyKey) Addr() common.Address {
+func (k KeyKey) Addr() common.Address {
 	return k.addr
 }
 
@@ -1231,6 +1248,42 @@ func (k KeyKey) Format(s fmt.State, c rune) {
 	s.Write([]byte(", "))
 	k.key.Format(s, c)
 }
+
+func (k HashedKeyKey) Format(s fmt.State, c rune) {
+	k.hashAddr.Format(s, c)
+	s.Write([]byte(", "))
+	k.key.Format(s, c)
+}
+
+func (k HashedKeyKey) MarshalText() ([]byte, error) {
+	//return []byte(fmt.Sprintf("%s:%s", k.addr, k.key)), nil
+	b1, err := k.hashAddr.MarshalText()
+	if err != nil {
+		return nil, err
+	}
+	b2, err := k.key.MarshalText()
+	if err != nil {
+		return nil, err
+	}
+	return []byte(string(b1) + "," + string(b2)), nil
+}
+
+func (k *HashedKeyKey) UnmarshalText(text []byte) error {
+	parts := strings.SplitN(string(text), ",", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("Invalid format for keykey: %s", text)
+	}
+	err := k.hashAddr.UnmarshalText([]byte(parts[0]))
+	if err != nil {
+		return err
+	}
+	err = k.key.UnmarshalText([]byte(parts[1]))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 
 func (k KeyKey) MarshalText() ([]byte, error) {
 	//return []byte(fmt.Sprintf("%s:%s", k.addr, k.key)), nil

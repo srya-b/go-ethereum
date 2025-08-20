@@ -202,7 +202,7 @@ func PublicFindAll(addr common.Address, j [][]LogJournalEntry) {
 				k := logEntry.key
 				_, seen := seenKeys[KeyKey{a, k}]
 				if addr.Cmp(a) == 0 {
-					log.Debug("Found a match")
+					//log.Debug("Found a match")
 					if !seen {
 						log.Debug("Get storage target", "journal", jidx, "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
 						seenKeys[KeyKey{a, k}] = true
@@ -232,6 +232,180 @@ func PublicFindAll(addr common.Address, j [][]LogJournalEntry) {
 			}
 		}
 	}
+}
+
+func PublicFindAllHashKeyKey(hkk HashedKeyKey, j [][]LogJournalEntry) {
+    log.Debug(fmt.Sprintf("PublicFIndAllHashKeyKey(%v)", hkk))
+	for jidx, journ := range j {
+		for idx, lentry := range journ {
+			switch logEntry := (lentry.Entry).(type) {
+			case getStorageEntry:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				k := logEntry.key
+                hk := common.BytesToHash(trie.PublicHashKey(k.Bytes()))
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(hkk.HashAddr()) == 0 && hk.Cmp(hkk.Key()) == 0 {
+					//log.Debug("Found a match")
+					log.Debug("Get storage target", "journal", jidx, "idx", idx, "addr", a, "key", k, "val", logEntry.value, "revert", lentry.Reverted)
+				}
+            case storageChange:
+                a := logEntry.account
+                k := logEntry.key
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+                hk := common.BytesToHash(trie.PublicHashKey(k.Bytes()))
+                if ha.Cmp(hkk.HashAddr()) == 0 && hk.Cmp(hkk.Key()) == 0 {
+                    log.Debug("Storage change target", "journal", jidx, "idx", idx, "addr", a, "key", k, "prevvalue", logEntry.prevvalue, "originvalue", logEntry.origvalue, "newvalue", logEntry.newvalue)
+                }
+			default:
+			}
+		}
+	}
+}
+
+
+func PublicFindAllHashKeyStorage(addr common.Hash, j [][]LogJournalEntry) {
+	seenKeys := make(map[KeyKey]bool)
+	for jidx, journ := range j {
+		for idx, lentry := range journ {
+			switch logEntry := (lentry.Entry).(type) {
+			case getStorageEntry:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				k := logEntry.key
+				_, seen := seenKeys[KeyKey{a, k}]
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					//log.Debug("Found a match")
+					if !seen {
+						log.Debug("Get storage target", "journal", jidx, "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
+						seenKeys[KeyKey{a, k}] = true
+					}
+				}
+            case storageChange:
+                a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+                if ha.Cmp(addr) == 0 {
+                    log.Debug("storage Change", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted, "origvalue", logEntry.origvalue, "newvalue", logEntry.newvalue)
+                }
+			default:
+			}
+		}
+	}
+}
+
+
+
+func PublicFindAllHashKey(addr common.Hash, j [][]LogJournalEntry) {
+	seenKeys := make(map[KeyKey]bool)
+	for jidx, journ := range j {
+		for idx, lentry := range journ {
+			switch logEntry := (lentry.Entry).(type) {
+			case getStorageEntry:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				k := logEntry.key
+				_, seen := seenKeys[KeyKey{a, k}]
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					//log.Debug("Found a match")
+					if !seen {
+						log.Debug("Get storage target", "journal", jidx, "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
+						seenKeys[KeyKey{a, k}] = true
+					}
+				}
+			case getStateObjectEntry:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					log.Debug("Get obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+				}
+			case createObjectChange:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					log.Debug("create obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+				}
+			case selfDestructChange:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					log.Debug("Self destruct target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+				}
+			case createContractChange:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					log.Debug("create contract change", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+				}
+			default:
+			}
+		}
+	}
+}
+
+
+func PublicFindAllHashKeyCount(addr common.Hash, j [][]LogJournalEntry) int {
+	seenKeys := make(map[KeyKey]bool)
+    //outStr := []string{}
+    out := 0
+	for _, journ := range j {
+		for _, lentry := range journ {
+			switch logEntry := (lentry.Entry).(type) {
+			case getStorageEntry:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				k := logEntry.key
+				_, seen := seenKeys[KeyKey{a, k}]
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					//log.Debug("Found a match")
+					if !seen {
+						//log.Debug("Get storage target", "journal", jidx, "idx", idx, "addr", a, "key", k, "revert", lentry.Reverted)
+                        out++
+						seenKeys[KeyKey{a, k}] = true
+					}
+				}
+			case getStateObjectEntry:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					//log.Debug("Get obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+				}
+			case createObjectChange:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					//log.Debug("create obj target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+                    out++
+				}
+			case selfDestructChange:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					//log.Debug("Self destruct target", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+                    out++
+				}
+			case createContractChange:
+				a := logEntry.account
+                ha := common.BytesToHash(trie.PublicHashKey(a.Bytes()))
+				//if addr.Cmp(a) == 0 {
+                if ha.Cmp(addr) == 0 {
+					//log.Debug("create contract change", "journal", jidx, "idx", idx, "addr", a, "revert", lentry.Reverted)
+                    out++
+				}
+			default:
+			}
+		}
+	}
+    return out
 }
 
 func (s *StateDB) findAll(addr common.Address) {
