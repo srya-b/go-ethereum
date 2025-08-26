@@ -643,8 +643,18 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 		}
 	}
 
+    // This map tracks the accounts that are created but aren't in stateObjects
+    // because they are deleted (i.e. the createObjectChange isn't reverted). When
+    // the createObject is seen the accounts value in createdAndDeleted is true. 
+    // When the corresponding delete is seen, its value is set to false.
 	createdAndDeleted := make(map[common.Address]bool)
     revertedCreateObject := make(map[common.Address]bool)
+
+
+    // This tracks the accounts that were created in this transactions and will exist
+    // afterwards. Accounts that have a createObjectChange entry and are found in
+    // stateObjects will be stored here and never removed. 
+    created := make(map[common.Address]bool)
 
 	for idx, lentry := range s.journal.logEntries {
 		var addr *common.Address
@@ -652,81 +662,103 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 		var keykey KeyKey
 		switch logEntry := (lentry.Entry).(type) {
 		case createObjectChange:
-			// this is a new stateObject so log the hash the value node representation of the state
+            // It doesn't matter if this address was seen in accounts (is OK) because 
+            // any getStateObject request for this address returns nil and the search 
+            // path down the trie. If this is the first time we're seeing this address
+            // be created, we still need to log the new leaf that is created.
+            //
+            // The only check to make is that the object is in stateObjects. If it isn't
+            // then this item is either deleted some time in the future by a selfDestruct
+            // or the createObjectChange was reverted.
 			addr = &(logEntry.account)
 			log.Debug("coc: Is this marked as reverted??", "addr", *addr, "reverted", lentry.Reverted)
 			exists, rawNode := s.accountToBytes(*addr)
 
-            // if it doesn't exist in stateObjects one of two things could be the case:
-            //     1. The message reverted so it is nullified
-            //     2. There is a selfDestruct somewhere later in the journal that cancels this out
-            // We could check the journal right now for a later self destruct of this same address OR
-            // we just wait till we encounter it and track all the "creates" that don't exist and weren't
-            // reverted and check that each of them has a corresponding selfDestruct operation
             if !exists {
+                // If the createObject wasn't reverted, then it must be deleted later
+                // in the journal so let's log it and wait for it to be deleted.
                 if !lentry.Reverted {
-                    // if it wasn't reverted, then we track it and wait for the future selfDestruct that
                     // deleted this from stateObjects
                     log.Debug("coc: Could be that the object gets deleted later", "addr", *addr) 
 				    prev, ok := createdAndDeleted[*addr]
 				    if ok {
-                        // if this address is already tracked in createdAndDeleted this can still be OK
-                        // someone might be calling create multiple times, we just wait until selfDestruct
-				    	// should be false, should delete before another create
 				    	log.Error("coc: Account was already seen as created", "addr", *addr)
 				    	if prev {
-                            // if its value in createdAndDelted is TRUE that means we haven't seen a selfDestruct since
-                            // the last createObjectChange where we didn't find it in stateObjects
-                            // TODO: for now this is okay but unexpected
-				    		log.Error("this thing was prev created sna created again without a delete", "addr", *addr)
+                            // If the value in the map is still true means we saw a createObjectChange
+                            // and are seeing this one without a delete in between so something is amiss.
+				    		log.Error("coc: this thing was prev created sna created again without a delete", "addr", *addr)
+                            panic("")
                             continue
-				    		//panic("coc: this thing was prev created sna created again without a delete", "addr", *addr)
 				    		//return false, nil, nil, nil, nil, nil
-				    	}
+				    	} 
+                        // if prev = false than this is another create that will eventually
 				    }
-                    // it isn't in createdAndDeleted so store it and wait
+                    // set the value in createdAndDeleted to true
 				    createdAndDeleted[*addr] = true
                     log.Debug("coc: Object isn't in stateObjects and its createObjectChange wasn't reverted")
                     //panic("log finalize 488")
                 } else {
-                    // if it is reverted just add it to the reverted map instead of createAndDelete
+                    // else if it is reverted, then we store it in this map instead and
+                    // we don't care to log this since there is not trie traversal
                     revertedCreateObject[*addr] = true
                 }
                 // regardless of which case (1. or 2.) we should continue and not process this any further
                 continue
             }
-            // it does exist in stateObjects
-			// the node has no hash so we store the key and value as the same
-			// convert it into a hashNode	
+    
+            // otherwise this object is here to stay so can remove it from these maps
+            // it could be that this createObject will be deleted and another happens
+            // before the end of the journal. It doesn't really matter beacuse
+            // selfDesturct here is only used to manage createdAndDeleted
+            _, wasCreated := createdAndDeleted[*addr]
+            _, revertCreated := revertedCreateObject[*addr]
+            _, willExist := created[*addr]
+            if wasCreated {
+                delete(createdAndDeleted, *addr)
+            }
+            if revertCreated {
+                delete(revertedCreateObject, *addr)
+            }
+
+            if !willExist {
+                created[*addr] = true
+            }
+
 			rawNodeHash := trie.HashValueNode(rawNode)
-			// for all accounts that are new we store only the account itself (as a leaf)
-            // as its path
-			//accounts[*addr] = nil
+
+            // If there was a getStateObject before this create, then accounts
+            // logs the path that was searched looking for this account. accountNodes
+            // stores the hashes and raw bytes of each node on that path, but this never
+            // includes the hash of this leaf. If this object is already in accounts, then
+            // we don't update accounts because we preserve the trie search. In this case,
+            // only store the hash and preimage of this account.
 			_, ok := accounts[*addr]
 			if ok {
                 // created twice is OK
 				log.Debug("LogFinalize: Created twice", "account", *addr)
 			} else {
-                log.Info("Create account.", "addr", *addr)
+                // There wasn't a previous getStateObject for this address so we 
+                // just store this the raw bytes of this leaf as the search path because
+                // no future getStateObject will ever search the trie since it's created.
+			    accounts[*addr] = []common.Hash{rawNodeHash}
             }
-			accounts[*addr] = []common.Hash{rawNodeHash}
 			accountNodes[rawNodeHash] = rawNode
 		case createContractChange:
-			// need to check if this already exists, sometimes the object is created before
-			// the contract is "created"
-            // statedb CreateContract seems to assume the account is already in stateObjectso
-            // (a getStateObject call is made and the result is not checked for nil)
-            // therefore we should assume the same 
-            // since we assume the object exists, there is only one case that it shouldn't
-            // be found and that is 
+            // createContractChange only sets a flag in the object associated with this
+            // account, and it's always preceded by a getStateObject entry. Therefore,
+            // there's nothing to do here. The account is assumed to exist and previous
+            // entries in the journal will log everything about it. Just do some sanity
+            // checks for no reason lol.
 			addr = &(logEntry.account)
 			_, ok := accounts[*addr]
             _, maybeDeleted := createdAndDeleted[*addr]
             _, createReverted := revertedCreateObject[*addr]
-			found, rawNode := s.accountToBytes(*addr)
+			found, _ := s.accountToBytes(*addr)
 			if !ok {
-                // a createContractChange always gets the object so we must have seen this account already
-                // if it isn't in accounts then that means it was reverted or deleted 
+                // A reverted getstate doesn't matter. This should always already be in accounts
+                // there is no reason to not be in account, we should panic here because a major
+                // assumption of getStateObject before createContract is violated and it doesn't
+                // mae sense.
                 if found || createReverted {
                     // this should never happen: this means that we haven't seen this yet in the jornal
                     // but a createObjectEntry is always preceded by a getStateObject
@@ -747,6 +779,7 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
                 if !maybeDeleted { panic("err") }
 				log.Debug("LogFinalize: contract crearte of existing obj", "addr", *addr)
                 log.Info("Access", "addr", *addr)
+                panic("create contract should always be in ok becuase getStateObject happens first")
                 continue
 			}
             // if it WAS found in means a previous access found it in stateObjects and it wasn't createdAndDeleted.
@@ -755,19 +788,6 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
                 log.Error("It WAS in accounts[addr] but is also in createdAndDeleted, but if it was deleted it shouldn't be in here", "addr", *addr)
                 panic("Log finalize createContractChange in accounts")
             }
-            // if it wasn't found, it should never have been logged into accounts[*addr] it would be saved in createdAnd Deleted
-            // a reverted createContractChange can't be the reason for something to not be found, since it doesn't delete the stateObject
-			if !found {
-                log.Error("Can't be not found, it was in accounts[*addr]", "addr", *addr)
-                panic("log finalize !found but in accounts")
-            }
-
-            //now we know that it is in accounts and it is found
-			//rawNodeHash := common.BytesToHash(rawNode)
-			rawNodeHash := trie.HashValueNode(rawNode)
-			//accounts[*addr] = nil
-			accounts[*addr] = []common.Hash{rawNodeHash}
-			accountNodes[rawNodeHash] = rawNode
 		case getStateObjectEntry:
 			addr = logEntry.Account()
             // if the account is in accounts that means it was already processed
@@ -788,15 +808,15 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
             // get their path in IntermediateRoot's logging.
             _, candd := createdAndDeleted[*addr]
             _, revd := revertedCreateObject[*addr]
+            _, createdForGood := created[*addr]
 			_, ok := accounts[*addr]
-            //if candd || revd {
-            //    if ok {
-            //        log.Error("This account was createdAndDeleted but is in acccounts??", "addr", *addr, "candd", candd, "revd", revd)
-            //        panic("logFinalize getStateObject error")
-            //    }
-            //}
-
-			if !ok && !candd && !revd {
+    
+            // if this was createdForGood we still want to log the search path down
+            // the trie at least once. We're possible doing an extra search/check for this
+            // account than we need to because create could come first and then every future
+            // get will short circuit and skip the trie, but oh well we just want this data
+			//if !ok && !candd && !revd {
+            if !ok {
 				// we haven't seen it so we store the nodes on the path
 				res, _, pathHashes, rawNodesOnPath, err := s.trie.GetAccountLogged(*addr)
 				log.Debug("LogFinalize: account access", "addr", *addr)
