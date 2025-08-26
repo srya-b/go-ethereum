@@ -217,8 +217,9 @@ type StateDB struct {
 	opsCalled 	  []OP			   // what GetState/SetState was called
 	totalOps	      int			   // lenth of opsCalled and length of pathsTaken
 
-	numPre		  int
-	numPost       int
+	//numPre		  int
+	//numPost       int
+	numLogs       int
 	logDir        string
 	blockNo		  *big.Int
 	postCompleted bool
@@ -991,8 +992,9 @@ func (s *StateDB) Copy() *StateDB {
 		loggedCreateDeletes:  addressCopy2d(s.loggedCreateDeletes),
 		loggedRevertCreates:  addressCopy2d(s.loggedRevertCreates),
 		logState:			  s.logState,
-		numPre:				  s.numPre,
-		numPost:			  s.numPost,
+		//numPre:				  s.numPre,
+		//numPost:			  s.numPost,
+		numLogs:		      s.numLogs,
 		logDir:				  s.logDir,
 		blockNo:			  s.blockNo,
 		postCompleted:        s.postCompleted,
@@ -1372,7 +1374,6 @@ func (s *StateDB) logPreData(r common.Hash) bool {
 	}
 
 	return true
-	//s.printPre(1, s.loggedJournals)
 }
 
 func (s *StateDB) logPostData(deletedAddrs []common.Address, r common.Hash) bool {
