@@ -188,6 +188,13 @@ func (s *StateDB) findGetCreates(addr common.Address) {
 					log.Debug("is NOT in stateObjects")
 				}
 			}
+        case getStorageEntry:
+            a := logEntry.account
+            key := logEntry.key
+            value := logEntry.value
+            if addr.Cmp(a) == 0 {
+                log.Debug("get storage entry", "idx", idx, "addr", a, "key", key, "val", value, "revert", lentry.Reverted)
+            }
 		}
 	}
 }
@@ -806,11 +813,11 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
             // Once the create operation is seen we don't do anything else. Other accounts
             // that are created (and persist) will be saved in accounts and we'll also
             // get their path in IntermediateRoot's logging.
-            _, candd := createdAndDeleted[*addr]
-            _, revd := revertedCreateObject[*addr]
-            _, createdForGood := created[*addr]
+            //_, candd := createdAndDeleted[*addr]
+            //_, revd := revertedCreateObject[*addr]
+            //_, createdForGood := created[*addr]
 			_, ok := accounts[*addr]
-    
+
             // if this was createdForGood we still want to log the search path down
             // the trie at least once. We're possible doing an extra search/check for this
             // account than we need to because create could come first and then every future
@@ -876,16 +883,18 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 			key = logEntry.Key()
 			keykey = KeyKey{*addr, *key}
 			// ASSERT that we've sene the account before
-            _, candd := createdAndDeleted[*addr]
-            _, revd := revertedCreateObject[*addr]
+            //_, candd := createdAndDeleted[*addr]
+            //_, revd := revertedCreateObject[*addr]
 			_, ok := accounts[*addr]
-            if candd || revd {
-                // this was created and deleted in this same transaction so we can ignore this
-                if ok {
-                    log.Error("This account was createdAndDeleted but is in acccounts??", "addr", *addr, "candd", candd, "revd", revd)
-                    panic("logFinalize getStateObject error")
-                }
-            }
+            // this account acn be in createdAndDeleted and still be in accounts if
+            // it is created more than once and finally persists
+            //if candd || revd {
+            //    // this was created and deleted in this same transaction so we can ignore this
+            //    if ok {
+            //        log.Error("This account was createdAndDeleted but is in acccounts??", "addr", *addr, "candd", candd, "revd", revd)
+            //        panic("logFinalize getStateObject error")
+            //    }
+            //}
 			if !ok {
 				panic(fmt.Sprintf("getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
 				log.Error(fmt.Sprintf("LogFinalize [513] getStorage(addr=%v, key=%v) but addr not in accountsSeen", *addr, *key))
@@ -898,9 +907,13 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 				// get the stateObject first it should be in stateObjects
 				obj, exist := s.stateObjects[*addr]
 				if !exist {
-					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
-					log.Error(fmt.Sprintf("LogFinalize [524] Address %v not in stateObejcts", *addr))
-					return false, nil, nil, nil, nil, nil, nil, nil
+                    // if it doesn't exist that means this is a getStorage for an account
+                    // that was created and then un-created in this transaction. There is 
+                    // NO trie paths to get, and there is nothing to log.
+                    continue
+					//panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					//log.Error(fmt.Sprintf("LogFinalize [524] Address %v not in stateObejcts", *addr))
+					//return false, nil, nil, nil, nil, nil, nil, nil
 				}
 				//log.Info("log finalize storage entry CALL", "addr", *addr, "key", *key)
 				log.Debug("LogFinalize: key access", "addr", *addr, "key", *key)
@@ -970,9 +983,12 @@ func (s *StateDB) LogFinalize() (bool, []common.Address, map[common.Address][]co
 				}
 				obj, exist := s.stateObjects[*addr]
 				if !exist {
-					panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
-					log.Error(fmt.Sprintf("LogFinalize [605] Address %v not in stateObejcts", *addr))
-					return false, nil, nil, nil, nil, nil, nil, nil
+                    // if this is something that doesn't exist then it was created and un-created
+                    // in the same block, so we ignore these changes
+                    continue
+					//panic(fmt.Sprintf("Address %v not in stateObejcts", *addr))
+					//log.Error(fmt.Sprintf("LogFinalize [605] Address %v not in stateObejcts", *addr))
+					//return false, nil, nil, nil, nil, nil, nil, nil
 				}
 				// GetStateLogged is called here because there is no "miss" for the storage change from nil
 				// GetStateLogged is just to check that the get short circuits and gives no paths or nodes
