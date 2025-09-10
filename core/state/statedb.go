@@ -1225,6 +1225,10 @@ type HashedKeyKey struct {
 	key common.Hash
 }
 
+func NewKeyKey(addr common.Address, k common.Hash) KeyKey {
+	return KeyKey{addr, k}
+}
+
 func NewHashedKeyKey(h common.Hash, k common.Hash) HashedKeyKey {
 	return HashedKeyKey{h, k}
 }

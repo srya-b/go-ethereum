@@ -4,12 +4,14 @@ import (
 	"fmt"
     "encoding/json"
 	"slices"
+	"bytes"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/holiman/uint256"
 )
 
 type Set map[common.Address]bool
@@ -848,11 +850,351 @@ func getStorageEntryAccess(addr common.Address, key common.Hash, keys map[KeyKey
 	return copyReverse(pathHashes)
 }
 
+// journalEntry is a modification entry in the state change journal that can be
+// reverted on demand.
+type JournalEntry interface {
+	ToString() string
+}
+
+type (
+	// Changes to the account trie.
+	CreateObjectChange struct {
+		Account common.Address
+	}
+
+	// Changes to the account trie without being marked as dirty.
+	CreateZombieChange struct {
+		Account *common.Address
+	}
+
+	// createContractChange represents an account becoming a contract-account.
+	// This event happens prior to executing initcode. The journal-event simply
+	// manages the created-flag, in order to allow same-tx destruction.
+	CreateContractChange struct {
+		Account common.Address
+	}
+	SelfDestructChange struct {
+		Account common.Address
+	}
+
+	// Changes to individual accounts.
+	BalanceChange struct {
+		Account common.Address
+		Prev    *uint256.Int
+	}
+	NonceChange struct {
+		Account common.Address
+		Prev    uint64
+	}
+	StorageChange struct {
+		Account   common.Address
+		Key       common.Hash
+		Prevvalue common.Hash
+		Origvalue common.Hash
+		Newvalue common.Hash
+	}
+	CodeChange struct {
+		Account  common.Address
+		PrevCode []byte
+	}
+
+	// Changes to other state values.
+	RefundChange struct {
+		Prev uint64
+	}
+	AddLogChange struct {
+		Txhash common.Hash
+	}
+	TouchChange struct {
+		Account common.Address
+	}
+
+	// Changes to the access list
+	AccessListAddAccountChange struct {
+		Address common.Address
+	}
+	AccessListAddSlotChange struct {
+		Address common.Address
+		Slot    common.Hash
+	}
+
+	// Changes to transient storage
+	TransientStorageChange struct {
+		Account       common.Address
+		Key, Prevalue common.Hash
+	}
+
+	GetStateObjectEntry struct {
+		Account	common.Address
+	}
+
+	GetStorageEntry struct {
+		Account	common.Address
+		Key		common.Hash
+		Value	common.Hash
+	}
+
+	EmptyDeleteEntry struct {
+		Account common.Address
+	}
+)
+
+func (ch EmptyDeleteEntry) ToString() string {
+	return "emptyDeleteEntry(" + ap(&(ch.Account)) + ")"
+}
+
+func (ch emptyDeleteEntry) export() EmptyDeleteEntry {
+	var a EmptyDeleteEntry
+	a.Account.SetBytes(ch.account[:])
+	return a
+}
+
+func (ch GetStateObjectEntry) ToString() string {
+	return "\tgetStateObject(" + ap(&(ch.Account)) + ")"
+}
+
+func (ch getStateObjectEntry) export() GetStateObjectEntry {
+	var a GetStateObjectEntry
+	a.Account.SetBytes(ch.account[:])
+	return a
+}
+
+func (ch GetStorageEntry) ToString() string {
+	return "\tgetStorage(" + akv(&(ch.Account), &(ch.Key), &(ch.Value)) + ")"
+}
+
+func (ch getStorageEntry) export() GetStorageEntry {
+	var a GetStorageEntry
+	a.Account.SetBytes(ch.account[:])
+	a.Key.SetBytes(ch.key[:])
+	a.Value.SetBytes(ch.value[:])
+	return a
+}
+
+func (ch CreateObjectChange) ToString() string {
+	return "createObjectChange(" + ap(&(ch.Account)) + ")"
+}
+
+func (ch createObjectChange) export() CreateObjectChange {
+	var a CreateObjectChange
+	a.Account.SetBytes(ch.account[:])
+	return a
+}
+
+func (ch CreateContractChange) ToString() string {
+	return "createContract(" + ap(&ch.Account) + ")"
+}
+
+func (ch createContractChange) export() CreateContractChange {
+	var a CreateContractChange
+	a.Account.SetBytes(ch.account[:])
+	return a
+}
+
+func (ch SelfDestructChange) ToString() string {
+	return "selfDestruct(" + ap(&(ch.Account)) + ")" 
+}
+
+func (ch selfDestructChange) export() SelfDestructChange {
+	var a SelfDestructChange
+	a.Account.SetBytes(ch.account[:])
+	return a
+}
+
+func (ch TouchChange) ToString() string {
+	return "touchChange(" + ap(&(ch.Account)) + ")"
+}
+
+func (ch touchChange) export() TouchChange {
+	var a TouchChange
+	a.Account.SetBytes(ch.account[:])
+	return a
+}
+
+func (ch BalanceChange) ToString() string {
+	return "balanceChange(" + ap(&(ch.Account)) + ", prev=" + ch.Prev.String() + ")"
+}
+
+func (ch balanceChange) export() BalanceChange {
+	var a BalanceChange
+	a.Account.SetBytes(ch.account[:])
+	a.Prev = ch.prev.Clone()
+	return a
+}
+
+func (ch NonceChange) ToString() string {
+	return "nonceChange(" + ap(&(ch.Account)) + fmt.Sprintf(", prev=%v)",ch.Prev)
+} 
+
+func (ch nonceChange) export() NonceChange {
+	var a NonceChange
+	a.Account.SetBytes(ch.account[:])
+	a.Prev = ch.prev
+	return a
+}
+
+func (ch CodeChange) ToString() string {
+	return "codeChange(" + ap(&(ch.Account)) + ")"
+}
+
+func (ch codeChange) export() CodeChange {
+	var a CodeChange
+	a.Account.SetBytes(ch.account[:])
+	a.PrevCode = bytes.Clone(ch.prevCode)
+	return a
+}
+
+func (ch StorageChange) ToString() string {
+	return "storageChange(" + akvp(&(ch.Account), &(ch.Key), &(ch.Prevvalue), &(ch.Origvalue)) + ")"
+}
+
+func (ch storageChange) export() StorageChange {
+	var a StorageChange
+	a.Account.SetBytes(ch.account[:])
+	a.Key.SetBytes(ch.key[:])
+	a.Prevvalue.SetBytes(ch.prevvalue[:])
+	a.Origvalue.SetBytes(ch.origvalue[:])
+	a.Newvalue.SetBytes(ch.newvalue[:])
+	return a
+}
+
+func (ch TransientStorageChange) ToString() string {
+	return "transientStorageChange(" + ap(&(ch.Account)) + ")"
+} 
+
+func (ch transientStorageChange) export() TransientStorageChange {
+	var a TransientStorageChange
+	a.Account.SetBytes(ch.account[:])
+	a.Key.SetBytes(ch.key[:])
+	a.Prevalue.SetBytes(ch.prevalue[:])
+	return a
+}
+
+func (ch RefundChange) ToString() string {
+	return "refundChange()"
+}
+
+func (ch refundChange) export() RefundChange {
+	var a RefundChange
+	a.Prev = ch.prev
+	return a
+}
+
+func (ch AddLogChange) ToString() string {
+	return "addLogChange()"
+}
+
+func (ch addLogChange) export() AddLogChange {
+	var a AddLogChange
+	a.Txhash.SetBytes(ch.txhash[:])
+	return a
+}
+
+func (ch AccessListAddAccountChange) ToString() string {
+	return "accessListAddAccountChange()"
+}
+
+func (ch accessListAddAccountChange) export() AccessListAddAccountChange {
+	var a AccessListAddAccountChange
+	a.Address.SetBytes(ch.address[:])
+	return a
+}
+
+func (ch AccessListAddSlotChange) ToString() string {
+	return "accessListAddSlotChange()"
+}
+
+func (ch accessListAddSlotChange) export() AccessListAddSlotChange {
+	var a AccessListAddSlotChange
+	a.Address.SetBytes(ch.address[:])
+	a.Slot.SetBytes(ch.slot[:])
+	return a
+}
+
+type ExportedJournalEntry struct {
+	Entry JournalEntry
+	Reverted bool
+}
+
+func JournalsToExported(journals [][]LogJournalEntry) [][]ExportedJournalEntry {
+	out := make([][]ExportedJournalEntry, len(journals))
+
+	for i := 0; i < len(journals); i++ {
+		out[i] = JournalToExported(journals[i])
+	}
+	return out
+}
+
+func JournalToExported(journal []LogJournalEntry) []ExportedJournalEntry {
+	out := make([]ExportedJournalEntry, len(journal))
+	
+	for i := 0; i < len(journal); i++ {
+		var e ExportedJournalEntry
+		e.Reverted = journal[i].Reverted
+		switch entry := journal[i].Entry.(type) {
+			case createObjectChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case createContractChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case selfDestructChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case balanceChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case nonceChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case storageChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case codeChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case refundChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case addLogChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case touchChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case accessListAddAccountChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case accessListAddSlotChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case transientStorageChange:
+				e.Entry = entry.export()
+				out[i] = e
+			case getStateObjectEntry:
+				e.Entry = entry.export()
+				out[i] = e
+			case getStorageEntry:
+				e.Entry = entry.export()
+				out[i] = e
+			case emptyDeleteEntry:
+				e.Entry = entry.export()
+				out[i] = e
+			case createZombieChange:
+				continue
+			default:
+				panic(fmt.Sprintf("We forgot one case: %v", entry))
+		}
+	}
+	return out
+}
+
+
 // This function iterates through all of the journals in the block, and goes
 // through them in reverse order. Every key's path is stored in reverse order as
 // the order of accesses. A key whose path shares nodes that have already been
 // touched ignores those nodes and only stores the unique nodes.
-func OrderAccesses(journals [][]LogJournalEntry, root common.Hash, accounts map[common.Address][]common.Hash, accountNodes map[common.Hash][]byte, keys map[KeyKey][]common.Hash, keyNodes map[common.Hash][]byte, t *trie.ValidatorTrie) []common.Hash {
+func OrderAccessesReverse(journals [][]LogJournalEntry, root common.Hash, accounts map[common.Address][]common.Hash, accountNodes map[common.Hash][]byte, keys map[KeyKey][]common.Hash, keyNodes map[common.Hash][]byte, t *trie.ValidatorTrie) []common.Hash {
 	accesses := []common.Hash{}
 
 	for i := len(journals)-1 ; i >= 0 ; i-- {
