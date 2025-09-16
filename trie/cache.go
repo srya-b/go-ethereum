@@ -2934,7 +2934,19 @@ func TrieFromNodeCount(n node, preimages map[common.Hash][]byte) int {
 	}
 }
 
+// call for any trie and doesn't NOT explore account tries
+func AllNodeHashesInTrie(n node, preimages map[common.Hash][]byte, key []byte) map[common.Hash][]byte {
+	return allNodeHashes(n, preimages, key)
+}
+
 func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
+	if map1 == nil {
+		return map2 
+	}
+	if map2 == nil {
+		return map1
+	}
+
 	testMap := make(map[K]V)
 	for hn, raw := range map1 {
 		testMap[hn] = raw
@@ -2945,8 +2957,180 @@ func mergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
 	return testMap
 }
 
+func mapCountIntersection[K comparable, V any](map1 map[K]V, map2 map[K]V) int {
+	count := 0
+	for k := range map1 {
+		_, ok := map2[k]
+		if ok {
+			count++
+		}
+	}
+	return count
+}
+
+// EXCEPT value nodes, those we can assume are going to have duplicates since
+func allNodeHashes(n node, preimages map[common.Hash][]byte, key []byte) map[common.Hash][]byte {
+	switch n := (n).(type) {
+	case valueNode: 
+		// for value node don't do anything just return empty
+		return nil
+	case *shortNode:
+		// create the compacted shortNode and hash it
+		hashes := make(map[common.Hash][]byte)
+		childHashes := allNodeHashes(n.Val, preimages, append(key, (n.Key)...))
+		hashes = mergeMaps(hashes, childHashes)
+		// the raw node bytes that will be in the hash
+		newsn := &shortNode{Key: hexToCompact(n.Key), Val: n.Val}
+		newrawn, err := rlp.EncodeToBytes(newsn)
+		if err != nil {
+			panic(err)
+		}
+		hsn := HashNode(newsn)
+
+		// if this hash already exists then something is seriously wrong
+		rawoldsn, ok := hashes[hsn]
+		oldsn, err := PublicDecodeNode(nil, rawoldsn)
+		if err != nil && ok {
+			log.Error("Why does this shortNode already exist in the map?", "hsn", hsn, "sn", n)
+			log.Error("Couldn't decode the old node")
+			panic("")
+		}
+		if ok {
+			log.Error("Why does this shortNode already exist in the map?", "hsn", hsn, "sn", n, "oldsn", oldsn)
+			panic("")
+		}
+	
+		// otherwise add it to the map and return the map
+		hashes[hsn] = newrawn
+		return hashes
+	case *fullNode:
+		// the sanity check ensures that all the children of the fullNode are hashNodes
+		// because this is EXPECTED from the nodes stored in the logs (all children a
+		// are hashNodes)
+		ok := sanityCheckFullNode(n)
+		if !ok {
+			panic(fmt.Sprintf("Failed to check fullNode. node=%v", n))
+		}
+		final := make(map[common.Hash][]byte)
+		for pos, child := range &n.Children {
+			// save all hashes from subtrie
+			if child != nil {
+				childHashes := allNodeHashes(child, preimages, append(key, byte(pos)))
+				// check that there are no conflicts
+				c := mapCountIntersection(childHashes, final)
+				if c > 0 {
+					log.Error("Two different branches of the fullNode returned conflicting hashes")
+					panic("")
+				}
+				final = mergeMaps(final, childHashes)
+			}
+		}
+
+		// add the current fullNode hash
+		rawnewfn, err := rlp.EncodeToBytes(n)
+		if err != nil {
+			panic(err)
+		}
+		hfn := HashNode(n)
+		oldfnraw, ok := final[hfn]
+		oldfn, err := PublicDecodeNode(nil, oldfnraw)
+		if err != nil && ok {
+			log.Error("the current fullNode's hash is already in the map", "oldfn", oldfn, "n", n)
+			log.Error("Couldn't decode the old fn")
+			panic("")
+		}
+		if ok {
+			log.Error("the current fullNode's hash is already in the map", "oldfn", oldfn, "n", n)
+			panic("")
+		}
+	
+		final[hfn] = rawnewfn
+		return final
+	case hashNode:
+		// in some cases the hashNode isn't in the pre-images map so try a different one
+		realHash := common.BytesToHash(n)
+		hn := HashNode(n)
+		if hn != realHash {
+			panic(fmt.Sprintf("Hasnode hashes unequal! HashNode: %v, BytesToHash: %v, hn: %v", n, realHash, hn))
+		}
+		actualNodeRaw, exists := preimages[realHash]
+		actualNode, err := decodeNode(nil, actualNodeRaw)
+		final := make(map[common.Hash][]byte)
+		// if it is expanded go down the path
+		if err == nil && exists {
+			final = allNodeHashes(actualNode, preimages, key)
+		}
+		//return finalList
+		return final
+	default:
+		panic(fmt.Sprintf("%T: invalid node: %v", n, n))
+	}
+}
+
+
+// the goal here is to return the node hashes that are the same from the different
+// tries of different accounts' state tries 
+func TrieFromNodeHashDuplicates(n node, preimages map[common.Hash][]byte, key []byte) map[common.Hash]map[common.Hash][]byte {
+	switch n := (n).(type) {
+	case valueNode: 
+		storageRoot, _, exists := getStorageTrie(n, preimages)
+		k := PublicHexToKeybytes(key)
+		out := make(map[common.Hash]map[common.Hash][]byte)
+		if exists {
+			hashes := allNodeHashes(storageRoot, preimages, []byte{})
+			out[common.BytesToHash(k)] = hashes
+			return out
+		}
+		return out
+	case *shortNode:
+		// shortNodes are extensions or valueNodes
+		// they are usually stored as hashNodes so don't save anything here
+		switch (n.Val).(type) {
+		case *fullNode: panic("child of short node is a full node")
+		default:
+		}
+		return TrieFromNodeHashDuplicates(n.Val, preimages, append(key, (n.Key)...))
+	case *fullNode:
+		// exension nodes
+		ok := sanityCheckFullNode(n)
+		if !ok {
+			panic(fmt.Sprintf("Failed to check fullNode. node=%v", n))
+		}
+		final := make(map[common.Hash]map[common.Hash][]byte)
+		for pos, child := range &n.Children {
+			// save all hashes from subtrie
+			if child != nil {
+				hashes := TrieFromNodeHashDuplicates(child, preimages, append(key, byte(pos)))
+				final = mergeMaps(final, hashes)
+			}
+		}
+		return final
+	case hashNode:
+		// in some cases the hashNode isn't in the pre-images map so try a different one
+		realHash := common.BytesToHash(n)
+		hn := HashNode(n)
+		if hn != realHash {
+			panic(fmt.Sprintf("Hasnode hashes unequal! HashNode: %v, BytesToHash: %v, hn: %v", n, realHash, hn))
+		}
+		actualNodeRaw, exists := preimages[realHash]
+		actualNode, err := decodeNode(nil, actualNodeRaw)
+		final := make(map[common.Hash]map[common.Hash][]byte)
+		if err == nil && exists {
+			final = TrieFromNodeHashDuplicates(actualNode, preimages, key)
+		}
+		//return finalList
+		return final
+	default:
+		panic(fmt.Sprintf("%T: invalid node: %v", n, n))
+	}
+}
+
 //func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte, addr common.Hash, storage bool) []common.Hash {
 func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte, addr common.Hash, storage bool) map[common.Hash][]common.Hash {
+	return trieFromNodeCountKeys(n, preimages, key, addr, storage)
+}
+
+func trieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte, addr common.Hash, storage bool) map[common.Hash][]common.Hash {
 	switch n := (n).(type) {
 	case valueNode: 
 		storageRoot, _, exists := getStorageTrie(n, preimages)
@@ -2955,7 +3139,7 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte,
 			// add the root to the map and recurse
 			//return []common.Hash{common.BytesToHash(k)}
 			//keysInAccount := TrieFromNodeCountKeys(storageRoot, preimages, []byte{}, common.BytesToHash(k), true)
-			keysInAccount := TrieFromNodeCountAccounts(storageRoot, preimages, []byte{})
+			keysInAccount := trieFromNodeCountAccounts(storageRoot, preimages, []byte{})
 			return map[common.Hash][]common.Hash{
 						common.BytesToHash(k): keysInAccount,
 			}
@@ -2980,7 +3164,7 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte,
 		case *fullNode: panic("child of short node is a full node")
 		default:
 		}
-		return TrieFromNodeCountKeys(n.Val, preimages, append(key, (n.Key)...), addr, storage)
+		return trieFromNodeCountKeys(n.Val, preimages, append(key, (n.Key)...), addr, storage)
 	case *fullNode:
 		// exension nodes
 		ok := sanityCheckFullNode(n)
@@ -2997,7 +3181,7 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte,
 				// DEBUG
 				_, ok := child.(hashNode)
 				if !ok { panic("child of full node not a hashnode") }
-				accts := TrieFromNodeCountKeys(child, preimages, append(key, byte(pos)), addr, storage)
+				accts := trieFromNodeCountKeys(child, preimages, append(key, byte(pos)), addr, storage)
 				//final = append(final, accts...)
 				final = mergeMaps(final, accts)
 				//for ha, ks := range accts {
@@ -3021,7 +3205,7 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte,
 		//final := make(map[common.Hash][]common.Hash)
 		// if it is expanded go down the path
 		if err == nil && exists {
-			final = TrieFromNodeCountKeys(actualNode, preimages, key, addr, storage)
+			final = trieFromNodeCountKeys(actualNode, preimages, key, addr, storage)
 		}
 		//return finalList
 		return final
@@ -3032,6 +3216,10 @@ func TrieFromNodeCountKeys(n node, preimages map[common.Hash][]byte, key []byte,
 
 // Returns the hashed keys of the accounts that are reached: H(address)
 func TrieFromNodeCountAccounts(n node, preimages map[common.Hash][]byte, key []byte) []common.Hash {
+	return trieFromNodeCountAccounts(n, preimages, key)
+}
+
+func trieFromNodeCountAccounts(n node, preimages map[common.Hash][]byte, key []byte) []common.Hash {
 	switch n := (n).(type) {
 	case valueNode: 
 		_, _, exists := getStorageTrie(n, preimages)
@@ -3049,7 +3237,7 @@ func TrieFromNodeCountAccounts(n node, preimages map[common.Hash][]byte, key []b
 		case *fullNode: panic("child of short node is a full node")
 		default:
 		}
-		return TrieFromNodeCountAccounts(n.Val, preimages, append(key, (n.Key)...))
+		return trieFromNodeCountAccounts(n.Val, preimages, append(key, (n.Key)...))
 	case *fullNode:
 		// exension nodes
 		ok := sanityCheckFullNode(n)
@@ -3064,7 +3252,7 @@ func TrieFromNodeCountAccounts(n node, preimages map[common.Hash][]byte, key []b
 				// DEBUG
 				_, ok := child.(hashNode)
 				if !ok { panic("child of full node not a hashnode") }
-				accts := TrieFromNodeCountAccounts(child, preimages, append(key, byte(pos)))
+				accts := trieFromNodeCountAccounts(child, preimages, append(key, byte(pos)))
 				final = append(final, accts...)
 			}
 		}
@@ -3082,7 +3270,7 @@ func TrieFromNodeCountAccounts(n node, preimages map[common.Hash][]byte, key []b
 		final := []common.Hash{}
 		// if it is expanded go down the path
 		if err == nil && exists {
-			final = TrieFromNodeCountAccounts(actualNode, preimages, key)
+			final = trieFromNodeCountAccounts(actualNode, preimages, key)
 		}
 		//return finalList
 		return final
