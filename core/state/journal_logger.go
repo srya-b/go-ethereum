@@ -705,7 +705,9 @@ func GetCreatedAccounts(j [][]LogJournalEntry) Set {
 				_, ok := accountsCreated[entry.account]
 				if ok {
 					log.Error("Two un-reverted createObject changes to the same account", "addr", entry.account)
-					panic("err")
+					//PublicFindAll(entry.account, j)
+					//panic("err")
+					continue
 				}
 				accountsCreated[entry.account] = true
 			case selfDestructChange:
