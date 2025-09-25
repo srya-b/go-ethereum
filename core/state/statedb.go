@@ -1220,6 +1220,29 @@ type KeyKey struct {
 	key common.Hash
 }
 
+var ZeroKeyKey KeyKey = KeyKey{ common.Address{}, common.Hash{} }
+
+func (k KeyKey) NilAddr() bool {
+	if k.addr.Cmp(ZeroKeyKey.addr) == 0 {
+		return true
+	}
+	return false
+}
+
+func (k KeyKey) NilKey() bool {
+	if k.key.Cmp(ZeroKeyKey.key) == 0 {
+		return true
+	}
+	return false
+}
+
+func (k KeyKey) IsNil() bool {
+	if k.NilAddr() && k.NilKey() {
+		return true
+	}
+	return false
+}
+
 type HashedKeyKey struct {
 	hashAddr common.Hash
 	key common.Hash
