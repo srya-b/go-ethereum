@@ -18,14 +18,37 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
+type KeyPair struct {
+	Address		common.Address	`json:"address"`
+	Key			common.Hash		`json:"key"`
+}
+
+const (
+	OPCODE		= "opcode"	
+	BALANCE		= "balance"
+	HOOK		= "hook"
+	NONCE		= "nonce"
+	ARB			= "arb"
+	ARBTRANSFER = "arbtransfer"
+	CODE		= "code"
+)
+
+type KeyAccess struct {
+	Type		string		`json:"type"`
+	Pair		KeyPair		`json:"pair"`
+}
 
 // TxTrace holds all state changes for a single transaction.
 type TxTrace struct {
-	BlockNumber *big.Int       `json:"blockNumber"`
-	TxIndex     uint            `json:"txIndex"`
-	TxHash		common.Hash	   `json:"slot,omitempty"`
-	//Changes     []*StateChange `json:"changes"` // This will be empty
-	Accesses	[]*Access		`json:"acceses"`
+	BlockNumber *big.Int       		`json:"blockNumber"`
+	TxIndex     	uint            `json:"txIndex"`
+	TxHash			common.Hash	   `json:"txHash,omitempty"`
+	WriteAccesses	[]KeyAccess		`json:"writes"`
+	ReadAccesses	[]KeyAccess		`json:"reads"`
+
+	// for internal use only, not saved
+	Writes		map[KeyAccess]bool	`json:"-"`
+	Reads		map[KeyAccess]bool	`json:"-"`
 }
 
 // BlockTrace is the final output file, containing all tx traces for a block.
@@ -42,15 +65,12 @@ type StateAccessConfig struct {
 
 // Register the tracer in the live tracer framework.
 func init() {
-	//tracers.Register("stateAccessTracer", newStateAccessTracer)
-	fmt.Println("Registering storage tracer...")
 	tracers.LiveDirectory.Register("stateAccessTracer", NewStateAccessTracer)
 }
 
 // newStateAccessTracer is the constructor called by the tracer framework.
 //func NewStateAccessTracer(ctx *tracers.Context, cfg json.RawMessage) (tracers.Tracer, error) {
 func NewStateAccessTracer(cfg json.RawMessage) (*tracing.Hooks, error) {
-	fmt.Println("NewStateAccessTracer")
 	var config StateAccessConfig
 	if cfg != nil {
 		if err := json.Unmarshal(cfg, &config); err != nil {
@@ -116,7 +136,6 @@ type StateAccessTracer struct {
 func (t *StateAccessTracer) OnBlockStart(ev tracing.BlockEvent) { 
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	log.Info("OnBlockStart", "Block number", ev.Block.Number())
 
 	// validate that everything was cleared
 	if t.currentTrace != nil || len(t.allTraces) != 0 || len(t.blockTraceData) != 0 {
@@ -129,7 +148,6 @@ func (t *StateAccessTracer) OnBlockStart(ev tracing.BlockEvent) {
 func (t *StateAccessTracer) OnTxStart(vm *tracing.VMContext, tx *types.Transaction, from common.Address) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	log.Info("OnTxStart", "Block number", vm.BlockNumber)
 
 	// since OnBlockEnd won't be used, if the block numbe of this new transaction is different
 	// from the previous transaction then a block boundary is hit and save the previous block to file
@@ -143,58 +161,18 @@ func (t *StateAccessTracer) OnTxStart(vm *tracing.VMContext, tx *types.Transacti
 	t.currentTxIndex = uint(len(t.allTraces))
 
 	t.currentTrace = &TxTrace{
-		BlockNumber: vm.BlockNumber,
-		TxHash: 	 hash,
-		TxIndex:     t.currentTxIndex,
-		//Changes:     make([]*StateChange, 0), // This will be filled with the changes
-		Accesses:	 make([]*Access, 0),
+		BlockNumber: 	vm.BlockNumber,
+		TxHash: 	 	hash,
+		TxIndex:     	t.currentTxIndex,
+		//Changes:     	make([]*StateChange, 0), // This will be filled with the changes
+		WriteAccesses: 	make([]KeyAccess, 0),
+		ReadAccesses:	make([]KeyAccess, 0),
+		
+		Writes:			make(map[KeyAccess]bool),
+		Reads:			make(map[KeyAccess]bool),
 	}
 
 	t.allTraces[hash] = t.currentTrace
-}
-
-func IsStorageRead(opcode vm.OpCode) bool {
-	return opcode == vm.SLOAD
-}
-
-func IsStorageWrite(opcode vm.OpCode) bool {
-	return opcode == vm.SSTORE
-}
-
-func IsBalance(opcode vm.OpCode) bool {
-	return opcode == vm.BALANCE
-}
-
-
-// 1 - StateAccess
-// 2 - BalanceAccess
-// 3 - NonceChange
-// 4 - BlockHashRead 
-// 5 - ArbitrumAccess
-// 6 - ArbitrumTransfer
-// 7 - CodeChange
-type Access struct {
-	Type int	
-	Access		*StateAccess		`json:"access,omitempty"`
-	Balance		*BalanceAccess		`json:"balance,omitempty"`
-	Nonce		*NonceChange		`json:"nonce,omitempty"`
-	BlockHash	*BlockHashRead		`json:"blockhash,omitempty"`
-	ArbState	*ArbitrumAccess		`json:"arbstate,omitempty"`
-	ArbSend		*ArbitrumTransfer	`json:"arbsend,omitempty"`
-	Code		*CodeChange			`json:"codechange,omitempyy"`
-}	
-
-// StateAccess encompasses everything that touches the chain state excluding arbitrum state stuff (I think)
-// We record opcode accesses and StorageChange accesses differently and the Type variable indicates which this is
-// we record both to make sure we don't miss anything, because SSTORE to the same current value of the slot
-// isn't captured in StorageChange
-type StateAccess struct {
-	Type     string         `json:"type"`
-	Read     bool           `json:"read"`
-	Address  common.Address `json:"address"`
-	Slot     common.Hash    `json:"slot"`
-	OldValue common.Hash     `json:"oldValue"`
-	NewValue common.Hash     `json:"newValue"`
 }
 
 func (t *StateAccessTracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
@@ -202,7 +180,6 @@ func (t *StateAccessTracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope
 	defer t.mu.Unlock()
 
 	opcode := vm.OpCode(op)
-	log.Info("OnOpcode", "address", scope.Address(), "opcode", opcode)
 
 	if t.currentTrace == nil {
 		log.Error("OnOpcode no OnTxStart", "opcode", opcode, "addr", scope.Address())
@@ -213,115 +190,54 @@ func (t *StateAccessTracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope
 	stacklen := len(stack)
 
 	if IsStorageRead(opcode) {		// SLOAD
-		s := &StateAccess {
-				Type:		"opcode",
-				Read:		true,
-				Address:	scope.Address(),
-				Slot:		common.Hash(stack[stacklen-1].Bytes32()),
-		}
+		slot := common.Hash(stack[stacklen-1].Bytes32())
+		addr := scope.Address()
 
-		a := &Access{
-				Type:	1,
-				Access:	s,
-		}
-		t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
-
+		k := KeyAccess{OPCODE, KeyPair{addr, slot}}
+		t.currentTrace.Reads[k] = true
 	} else if IsStorageWrite(opcode) {		// SSTORE
-		s := &StateAccess{
-				Type:		"opcode",
-				Read:		false,
-				Address:	scope.Address(),
-				Slot:		common.Hash(stack[stacklen-1].Bytes32()),
-				NewValue:	common.Hash(stack[stacklen-2].Bytes32()),
-		}
+		slot := common.Hash(stack[stacklen-1].Bytes32())
+		addr := scope.Address()
 
-		a := &Access{
-				Type:	1,
-				Access: s,
-		}
-		t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
+		k := KeyAccess{OPCODE, KeyPair{addr, slot}}
+		t.currentTrace.Writes[k] = true
 	} else if IsBalance(opcode) {	// BALANCE
-		b := &BalanceAccess {
-				Address:	common.Address(stack[stacklen-1].Bytes20()),
-				Read:		true,
-		}
+		addr := common.Address(stack[stacklen-1].Bytes20())
+		k := KeyAccess{BALANCE, KeyPair{addr, common.Hash{}}}
 
-		a := &Access{
-				Type: 		2,
-				Balance:	b,
-		}
-		t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
+		t.currentTrace.Reads[k] = true
 	}
 }
 
 func (t *StateAccessTracer) OnStorageChange(addr common.Address, slot common.Hash, prev, new common.Hash) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	log.Info("OnStorageChange", "address", addr)
 
 	if t.currentTrace == nil {
 		log.Error("OnStorageChange no OnTxStart", "addr", addr, "slot", slot)
 		panic("")
 	}
 
-	s := &StateAccess{
-			Type:		"hook",
-			Read:		false,
-			Address:	addr,
-			Slot:		slot,
-			OldValue:	prev,
-			NewValue:   new,
-	}
-
-	a := &Access{
-			Type:	1,
-			Access: s,
-	}
-	t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
-}
-
-type BalanceAccess struct {
-	Address common.Address	`json:"address"`
-	Read	bool			`json:"read"`
-	Prev	string			`json:"prev"`
-	New		string			`json:"new"`
+	k := KeyAccess{HOOK, KeyPair{addr, slot}}
+	t.currentTrace.Writes[k] = true
 }
 
 func (t *StateAccessTracer) OnBalanceChange(addr common.Address, prev, new *big.Int, reason tracing.BalanceChangeReason) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	log.Info("OnBalanceChange", "addr", addr, "prev", prev.String(), "new", new.String())
 
 	if t.currentTrace == nil {
 		log.Error("OnBalanceChange no OnTxStart", "addr", addr, "prev", prev.String(), "new", new.String(), "reason", reason)
 		panic("")
 	}
 
-	b := &BalanceAccess{
-		Address: addr,
-		Read:	 false,
-		Prev:	 prev.String(),
-		New:	 new.String(),
-	}
-
-	a := &Access{
-		Type:		2,
-		Balance:	b,
-	}
-
-	t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
-}
-
-type NonceChange struct {
-	Address common.Address	`json:"address"`
-	Prev	uint64			`json:"prev"`		
-	New		uint64			`json:"new"`
+	k := KeyAccess{BALANCE, KeyPair{addr, common.Hash{}}}
+	t.currentTrace.Writes[k] = true
 }
 
 func (t *StateAccessTracer) OnNonceChangeV2(addr common.Address, prev, new uint64, reason tracing.NonceChangeReason) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	log.Info("OnNonceChangeV2", "addr", addr, "prev", prev, "new", new)
 	if prev == new {
 		// there are some nonce changes that happen between tranasction boundaries
 		return
@@ -332,87 +248,39 @@ func (t *StateAccessTracer) OnNonceChangeV2(addr common.Address, prev, new uint6
 		panic("")
 	}
 
-	n := &NonceChange{
-		Address:	addr,
-		Prev:		prev,
-		New:		new,
-	}
-
-	a := &Access{
-		Type: 	3,
-		Nonce: 	n,
-	}
-	t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
+	k := KeyAccess{NONCE, KeyPair{addr, common.Hash{}}}
+	t.currentTrace.Writes[k] = true
 }
 
 // NOT USED FOR NOW
-type BlockHashRead struct {
-	BlockNumber uint64			`json:"number"`
-	BlockHash	common.Hash		`json:"hash"`
-}
-
 func (t *StateAccessTracer) OnBlockHashRead(blockNumber uint64, hash common.Hash) {
 	//fmt.Println(fmt.Sprintf("OnBlockHashRead | block number %d, hash %v", blockNumber, hash))
-}
-
-type ArbitrumAccess struct {
-//	Type	string			`json:"type"`
-	Read	bool			`json:"read"`
-	Key		common.Hash		`json:"key"`
-	Value	common.Hash		`json:"value"`
 }
 
 func (t *StateAccessTracer) CaptureArbitrumStorageGet(key common.Hash, depth int, before bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	log.Info("ArbStorageGet", "key", key)
 
 	if t.currentTrace == nil {
 		log.Error("CatureArbitrumStorageGet no OnTxStart", "key", key)
 		panic("")
 	}
 
-	arb := &ArbitrumAccess{
-		Read:	true,
-		Key:	key,
-	}
-
-	a := &Access{
-		Type:		5,
-		ArbState:	arb,
-	}
-
-	t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
+	k := KeyAccess{ARB, KeyPair{common.Address{}, key}}
+	t.currentTrace.Reads[k] = true
 }
 
 func (t *StateAccessTracer) CaptureArbitrumStorageSet(key, value common.Hash, depth int, before bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	log.Info("ArbStorageSet", "key", key)
 
 	if t.currentTrace == nil {
 		log.Error("CatureArbitrumStorageSet no OnTxStart", "key", key, "value", value)
 		panic("")
 	}
 
-	arb := &ArbitrumAccess{
-		Read:	false,
-		Key:	key,
-		Value:	value,
-	}
-
-	a := &Access{
-		Type:		5,
-		ArbState:	arb,
-	}
-	t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
-}
-
-type ArbitrumTransfer struct {
-	From	common.Address					`json:"from"`
-	To		common.Address					`json:"to"`
-	Value	string							`json:"value"`
-	Reason	tracing.BalanceChangeReason		`json:"reason"`
+	k := KeyAccess{ARB, KeyPair{common.Address{}, key}}
+	t.currentTrace.Writes[k] = true
 }
 
 func (t *StateAccessTracer) CaptureArbitrumTransfer(from, to *common.Address, value *big.Int, before bool, reason tracing.BalanceChangeReason) {
@@ -428,56 +296,30 @@ func (t *StateAccessTracer) CaptureArbitrumTransfer(from, to *common.Address, va
 	if to != nil {
 		toS = *to
 	}
-	log.Info("ArbTransfer", "from", fromS, "to", toS)
 
 	if t.currentTrace == nil {
 		log.Error("CaptureArbitrumTransfer no OnTxStart", "from", fromS, "to", toS, "value", value.String())
 		panic("")
 	}
 
+	kfrom := KeyAccess{ARBTRANSFER, KeyPair{fromS, common.Hash{}}}
+	kto := KeyAccess{ARBTRANSFER, KeyPair{toS, common.Hash{}}}
 
-	arb := &ArbitrumTransfer{
-		From:	fromS,
-		To:		toS,
-		Value: 	value.String(),
-	}
-
-	a := &Access{
-		Type:		6,
-		ArbSend:	arb,
-	}
-
-	t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
-}
-
-type CodeChange struct {
-	Address		common.Address	`json:"address"`
-	Prev		common.Hash		`json:"prev"`
-	CodeHash	common.Hash		`json:"codehash"`
+	t.currentTrace.Writes[kfrom] = true
+	t.currentTrace.Writes[kto] = true
 }
 
 func (t *StateAccessTracer) OnCodeChange(addr common.Address, prevCodeHash common.Hash, prevCode []byte, codeHash common.Hash, code []byte) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	log.Info("OnCodeChange", "addr", addr)
 
 	if t.currentTrace == nil {
 		log.Error("OnCodeChange no OnTxStart", "addr", addr)
 		panic("")
 	}
 
-	c := &CodeChange{
-		Address:	addr,
-		Prev:		prevCodeHash,
-		CodeHash:	codeHash,
-	}
-
-	a := &Access{
-		Type:	7,
-		Code:	c,
-	}
-
-	t.currentTrace.Accesses = append(t.currentTrace.Accesses, a)
+	k := KeyAccess{CODE, KeyPair{addr, common.Hash{}}}
+	t.currentTrace.Writes[k] = true
 }
 
 // CaptureTxEnd is called at the end of each transaction.
@@ -489,8 +331,8 @@ func (t *StateAccessTracer) OnTxEnd(receipt *types.Receipt, err error) {
 
 	if t.currentTrace == nil {
 		// Should not happen if OnTxStart was called, but good to check.
-		log.Error("Empty block...")
-		return
+		log.Error("Empty transaction??")
+		panic("")
 	}
 
 	// tx is done, we have all the data in currentTrace and we append the current Trace to the block traces
@@ -507,7 +349,26 @@ func (t *StateAccessTracer) OnTxEnd(receipt *types.Receipt, err error) {
 		}
 	} else {
 		log.Error("OnTxEnd | no receipt...", "err", err)
+		panic("")
 	}
+
+	
+	// Move data in Writes and Reads into WriteAccesses and ReadAccesses because
+	// that is what will be written to file
+	t.currentTrace.WriteAccesses = make([]KeyAccess, 0, len(t.currentTrace.Writes))
+	t.currentTrace.ReadAccesses = make([]KeyAccess, 0, len(t.currentTrace.Reads))
+
+	for k := range t.currentTrace.Writes {
+		log.Info("Adding to writes", "k", k)
+		t.currentTrace.WriteAccesses = append(t.currentTrace.WriteAccesses, k)
+	}
+	for k := range t.currentTrace.Reads {
+		log.Info("Adding to reads", "k", k)
+		t.currentTrace.ReadAccesses = append(t.currentTrace.ReadAccesses, k)
+	}
+
+	t.currentTrace.Writes = nil
+	t.currentTrace.Reads = nil
 
 	t.blockTraceData = append(t.blockTraceData, t.currentTrace)
 	t.currentTrace = nil
@@ -522,7 +383,6 @@ func (t *StateAccessTracer) OnBlockEnd(err error) {
 // **NOTE: This hook is NOT called by the Nitro L2 execution engine.**
 //func (t *StateAccessTracer) OnBlockEnd(output []byte, gasUsed uint64, duration time.Duration, err error) {
 func (t *StateAccessTracer) OnBlockEndMetrics(blockNumber uint64, blockInsertDuration time.Duration) {
-	log.Info("OnBlockEndMetrics", "block number", blockNumber)
 	
 	if t.currentBlockNo.Uint64() != blockNumber {
 		log.Error("OnBlocENd block numbers differ", "ours", t.currentBlockNo.Uint64(), "hook", blockNumber)
@@ -557,51 +417,4 @@ func (t *StateAccessTracer) OnBlockEndMetrics(blockNumber uint64, blockInsertDur
 	// for this new transaction we are about to process after this if block ends
 	t.allTraces = make(map[common.Hash]*TxTrace)
 	t.blockTraceData = make([]*TxTrace, 0)
-
-	//if t.currentTrace != nil {
-	//	currBlockNumber := vm.BlockNumber
-	//	if currBlockNumber.Cmp(t.currentTrace.BlockNumber) != 0 {
-	//		// this is a new block so commit the previous info to file
-	//		if len(t.blockTraceData) == 0 {
-	//			return // Nothing to write
-	//		}
-	//	
-	//		// it shouldn't be the case that the block number isn't known
-	//		// but check anyway and save the string as "unkown" in case
-	//		blockNum := "unknown"
-	//		//if t.ctx.BlockNumber != nil {
-	//		if t.currentTrace.BlockNumber != nil {
-	//			blockNum = t.currentTrace.BlockNumber.String()
-	//		}
-
-	//		// we don't care about the hash of the block on the block trace
-	//		// it is useless data in this case
-	//		blockTrace := BlockTrace{
-	//			BlockNumber: currBlockNumber,
-	//			Traces:      t.blockTraceData,
-	//		}
-
-	//		// Write to a block-specific file
-	//		fileName := fmt.Sprintf("%s/state_trace_block_%s.json", t.config.OutputPath, blockNum)
-	//		file, err := os.Create(fileName)
-	//		if err != nil {
-	//			fmt.Fprintf(os.Stderr, "[StateAccessTracer] Failed to create trace file %s: %v\n", fileName, err)
-	//			return
-	//		}
-	//		defer file.Close()
-
-	//		encoder := json.NewEncoder(file)
-	//		encoder.SetIndent("", "  ")
-	//		if err := encoder.Encode(blockTrace); err != nil {
-	//			fmt.Fprintf(os.Stderr, "[StateAccessTracer] Failed to write trace to file %s: %v\n", fileName, err)
-	//		}
-
-	//		// all transactions are written to the file so clear everything to start again 
-	//		// for this new transaction we are about to process after this if block ends
-	//		t.allTraces = make(map[common.Hash]*TxTrace)
-	//		t.blockTraceData = make([]*TxTrace, 0)
-	//	}
-	//	t.currentTrace = nil
-	//	t.currentTxHash = common.Hash{}
-	//}
 }
