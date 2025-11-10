@@ -45,7 +45,11 @@ type TxTrace struct {
 	TxHash			common.Hash	   `json:"txHash,omitempty"`
 	WriteAccesses	[]KeyAccess		`json:"writes"`
 	ReadAccesses	[]KeyAccess		`json:"reads"`
-
+	CumulativeGas	uint64			`json:"cumulativeGas"`
+	GasUsed			uint64			`json:"gasUsed"`
+	GasUsedForL1	uint64			`json:gasUsedForL1"`
+	TxType			uint8			`json:"type"`	
+ 
 	// for internal use only, not saved
 	Writes		map[KeyAccess]bool	`json:"-"`
 	Reads		map[KeyAccess]bool	`json:"-"`
@@ -327,7 +331,6 @@ func (t *StateAccessTracer) OnCodeChange(addr common.Address, prevCodeHash commo
 func (t *StateAccessTracer) OnTxEnd(receipt *types.Receipt, err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	log.Info("OnTxEnd", "block number", receipt.BlockNumber)
 
 	if t.currentTrace == nil {
 		// Should not happen if OnTxStart was called, but good to check.
@@ -359,23 +362,26 @@ func (t *StateAccessTracer) OnTxEnd(receipt *types.Receipt, err error) {
 	t.currentTrace.ReadAccesses = make([]KeyAccess, 0, len(t.currentTrace.Reads))
 
 	for k := range t.currentTrace.Writes {
-		log.Info("Adding to writes", "k", k)
 		t.currentTrace.WriteAccesses = append(t.currentTrace.WriteAccesses, k)
 	}
 	for k := range t.currentTrace.Reads {
-		log.Info("Adding to reads", "k", k)
 		t.currentTrace.ReadAccesses = append(t.currentTrace.ReadAccesses, k)
 	}
 
 	t.currentTrace.Writes = nil
 	t.currentTrace.Reads = nil
 
+	// Add the gas amounts
+	t.currentTrace.CumulativeGas = receipt.CumulativeGasUsed
+	t.currentTrace.GasUsed = receipt.GasUsed
+	t.currentTrace.GasUsedForL1 = receipt.GasUsedForL1
+	t.currentTrace.TxType = receipt.Type
+
 	t.blockTraceData = append(t.blockTraceData, t.currentTrace)
 	t.currentTrace = nil
 }
 
 func (t *StateAccessTracer) OnBlockEnd(err error) {
-	log.Info("OnBlockEnd")
 }
 
 // CaptureEnd is the *block-level* hook.
