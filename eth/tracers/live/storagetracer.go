@@ -264,6 +264,8 @@ func (t *StateAccessTracer) OnBlockHashRead(blockNumber uint64, hash common.Hash
 func (t *StateAccessTracer) CaptureArbitrumStorageGet(key common.Hash, depth int, before bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	
+	log.Info("Arb storage get")
 
 	if t.currentTrace == nil {
 		log.Error("CatureArbitrumStorageGet no OnTxStart", "key", key)
