@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/trie/trienode"
 	"github.com/ethereum/go-ethereum/triedb/database"
 	"golang.org/x/sync/errgroup"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // Trie represents a Merkle Patricia Trie. Use New to create a trie that operates
@@ -190,6 +191,7 @@ func (t *Trie) Get(key []byte) ([]byte, error) {
 }
 
 func (t *Trie) get(origNode node, key []byte, pos int) (value []byte, newnode node, didResolve bool, err error) {
+	t.trackNodeAccess(origNode)
 	switch n := (origNode).(type) {
 	case nil:
 		return nil, nil, false, nil
@@ -403,6 +405,7 @@ func (t *Trie) update(key, value []byte) error {
 }
 
 func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error) {
+	t.trackNodeAccess(n)
 	if len(key) == 0 {
 		if v, ok := n.(valueNode); ok {
 			return !bytes.Equal(v, value.(valueNode)), value, nil
@@ -512,6 +515,7 @@ func (t *Trie) Delete(key []byte) error {
 // It reduces the trie to minimal form by simplifying
 // nodes on the way up after deleting recursively.
 func (t *Trie) delete(n node, prefix, key []byte) (bool, node, error) {
+	t.trackNodeAccess(n)
 	switch n := n.(type) {
 	case *shortNode:
 		matchlen := prefixLen(key, n.Key)
@@ -762,6 +766,23 @@ func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet) {
 	// If the number of changes is below 100, we let one thread handle it
 	t.root = newCommitter(nodes, t.prevalueTracer, collectLeaf).Commit(t.root, t.uncommitted > 100)
 	t.uncommitted = 0
+
+	if TrackExecution && CurrentBlock != nil && nodes != nil {
+		nodes.ForEachWithOrder(func(path string, n *trienode.Node) {
+			if n.IsDeleted() {
+				prevBlob := nodes.Origins[path]
+				if len(prevBlob) > 0 {
+					deletedHash := crypto.Keccak256Hash(prevBlob)
+					CurrentBlock.Deletes[deletedHash] = len(prevBlob)
+				}
+			} else {
+				if n.Hash != (common.Hash{}) {
+					CurrentBlock.Writes[n.Hash] = len(n.Blob)
+				}
+			}
+		})
+	}
+
 	return rootHash, nodes
 }
 
