@@ -767,17 +767,21 @@ func (t *Trie) Commit(collectLeaf bool) (common.Hash, *trienode.NodeSet) {
 	t.root = newCommitter(nodes, t.prevalueTracer, collectLeaf).Commit(t.root, t.uncommitted > 100)
 	t.uncommitted = 0
 
-	if TrackExecution && CurrentBlock != nil && nodes != nil {
+	cb := CurrentBlock
+
+	if TrackExecution && cb != nil && nodes != nil {
 		nodes.ForEachWithOrder(func(path string, n *trienode.Node) {
 			if n.IsDeleted() {
 				prevBlob := nodes.Origins[path]
 				if len(prevBlob) > 0 {
 					deletedHash := crypto.Keccak256Hash(prevBlob)
-					CurrentBlock.Deletes[deletedHash] = len(prevBlob)
+					//CurrentBlock.Deletes[deletedHash] = len(prevBlob)
+					cb.AddDelete(deletedHash, len(prevBlob))
 				}
 			} else {
 				if n.Hash != (common.Hash{}) {
-					CurrentBlock.Writes[n.Hash] = len(n.Blob)
+					//CurrentBlock.Writes[n.Hash] = len(n.Blob)
+					cb.AddWrite(n.Hash, len(n.Blob))
 				}
 			}
 		})
