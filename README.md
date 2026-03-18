@@ -1,3 +1,37 @@
+# Caching Work
+This fork/branch of geth includes functionality to record all trie node accesses during execution.
+These accesses include reads, writes, and deletes. 
+It's designed to work with Nitro, but it may work anyway because it just introduces an interface to start and stop node tracking and writing to a file.
+
+## What to track
+We care about tracking all the nodes (by hash) that are touched during execution.
+This includes not only the leaves of the trie (the accounts or storage slots) but all the nodes from the root to the leaf, because these are required in order to validate storage reads in a transaction.
+**Importantly** we care about caching at the block-level so we don't care about ephemeral nodes that are created and deleted (become stale or explicit delete) between transactions.
+
+When nodes change, its hash changes, and the hash of all the nodes up to the root also change.
+These are treated as new nodes that are inserted into the database.
+The old versions of the nodes are eventually pruned because they contain no references to them. 
+Therefore, new nodes and updated nodes are treated as the same.
+Deleted nodes are explicitly marked as deleted.
+
+## How collection works
+The main functions are defined in `trie/trie_tracker.go`.
+In order to track the trie accesses/writes for a specific piece of code, wrap the code block with `trie.BeginBlockTracking(blockNum)` at start and `trie.EndBlockTracking()` at the end. 
+(Currently, `BeginBlockTracking(blockNum)` uses the block number to tag when each access occurred, but you can put whatever you want in there if you don't are about tracking block numbers.)
+The first function sets a global flag `TrackExecution = true` and the following data collection only happens when it is true.
+
+### Reads
+First we care about the reads set: the nodes required to validate the storage accesses in this node.
+All READs are captures by calling `t.trackNodeAccess(n)` at the start of `trie.get(...)`, `trie.insert(...)`, and `trie.delete(...)`.
+The function determines the `hash` of the nodes just by looking in `n.flags.hash`. 
+The field isn't always populated, but for nodes that are read from the database this field is *always* populated.
+In other words, if `len(n.flags.hash) == 0` then this node didn't exist before this block, => so it doesn't correspond to the current state root (the trie is only updated on `statedb.Commit`) => we can ignore it for the read set of this block.
+
+### Writes and Deltes
+We only collect new nodes and deleted nodes in `trie.Commit`. 
+The object `nodes :: *trieNode.NodeSet` in `trie.Commit` ends up containing all of the nodes that were created or deleted, but the nodes are indexed by their path and need to be hashed.
+At the end of `trie.Commit` we iterate through `nodes`: if `n.IsDeleted()` and then hash it and call `AddDelete`, else it's a write and log it with `AddWrite`.
+
 ## Go Ethereum
 
 Golang execution layer implementation of the Ethereum protocol.
