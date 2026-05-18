@@ -23,6 +23,7 @@ import (
 	"io"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -138,6 +139,15 @@ type Database struct {
 	stateIndexer *historyIndexer              // History indexer historical state data, nil possible
 
 	lock sync.RWMutex // Lock to prevent mutations from happening at the same time
+
+	// diskWriteNs accumulates the total nanoseconds spent in cap operations
+	// during Update calls, where diff layers can be flushed to the disk layer.
+	// Drained by DrainDiskWriteDuration.
+	diskWriteNs atomic.Int64
+	// diskReadNs accumulates the total nanoseconds spent fetching trie nodes
+	// from the persistent on-disk store (i.e., misses through the dirty and
+	// clean caches). Drained by DrainDiskReadDuration.
+	diskReadNs atomic.Int64
 }
 
 // New attempts to load an already existing layer from a persistent key-value
@@ -342,7 +352,28 @@ func (db *Database) Update(root common.Hash, parentRoot common.Hash, block uint6
 	// - head-1 layer is paired with HEAD-1 state
 	// - head-127 layer(bottom-most diff layer) is paired with HEAD-127 state
 	// - head-128 layer(disk layer) is paired with HEAD-128 state
-	return db.tree.cap(root, db.config.MaxDiffLayers)
+	//
+	// cap is the only synchronous disk-touching path during Update: when the
+	// diff stack exceeds the configured limit, the bottom layer is persisted
+	// to the on-disk layer here. Time it for TrieDiskWrites accounting.
+	capStart := time.Now()
+	err := db.tree.cap(root, db.config.MaxDiffLayers)
+	db.diskWriteNs.Add(int64(time.Since(capStart)))
+	return err
+}
+
+// DrainDiskWriteDuration atomically reads and zeroes the accumulated
+// disk-write time. Used by StateDB to attribute disk I/O to a single block
+// commit.
+func (db *Database) DrainDiskWriteDuration() time.Duration {
+	return time.Duration(db.diskWriteNs.Swap(0))
+}
+
+// DiskReadNs returns the current value of the cumulative disk-read counter
+// without resetting it. StateDB uses this to take before/after snapshots
+// around the commit phase and compute the delta.
+func (db *Database) DiskReadNs() int64 {
+	return db.diskReadNs.Load()
 }
 
 // Commit traverses downwards the layer tree from a specified layer with the

@@ -375,7 +375,9 @@ func (s *stateObject) updateRoot() {
 	if err != nil || tr == nil {
 		return
 	}
+	hashStart := time.Now()
 	s.data.Root = tr.Hash()
+	s.db.StorageHashesNs.Add(int64(time.Since(hashStart)))
 }
 
 // commitStorage overwrites the clean storage with the storage changes and

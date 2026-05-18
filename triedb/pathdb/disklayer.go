@@ -146,11 +146,13 @@ func (dl *diskLayer) node(owner common.Hash, path []byte, depth int) ([]byte, co
 	}
 	// Try to retrieve the trie node from the disk.
 	var blob []byte
+	readStart := time.Now()
 	if owner == (common.Hash{}) {
 		blob = rawdb.ReadAccountTrieNode(dl.db.diskdb, path)
 	} else {
 		blob = rawdb.ReadStorageTrieNode(dl.db.diskdb, owner, path)
 	}
+	dl.db.diskReadNs.Add(int64(time.Since(readStart)))
 	// Store the resolved data in the clean cache. The background buffer flusher
 	// may also write to the clean cache concurrently, but two writers cannot
 	// write the same item with different content. If the item already exists,

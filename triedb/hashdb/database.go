@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
@@ -96,6 +97,14 @@ type Database struct {
 	childrenSize common.StorageSize // Storage size of the external children tracking
 
 	lock sync.RWMutex
+
+	// diskWriteNs accumulates synchronous disk-write time inside Update.
+	// hashdb's Update only mutates in-memory caches, so this is typically zero
+	// and is kept for symmetry with pathdb. Drained by DrainDiskWriteDuration.
+	diskWriteNs atomic.Int64
+	// diskReadNs accumulates time spent in rawdb.ReadLegacyTrieNode when the
+	// node is missing from both the dirty and clean caches.
+	diskReadNs atomic.Int64
 }
 
 // cachedNode is all the information we know about a single cached trie node
@@ -201,7 +210,9 @@ func (db *Database) node(hash common.Hash) ([]byte, error) {
 	memcacheDirtyMissMeter.Mark(1)
 
 	// Content unavailable in memory, attempt to retrieve from disk
+	readStart := time.Now()
 	enc := rawdb.ReadLegacyTrieNode(db.diskdb, hash)
+	db.diskReadNs.Add(int64(time.Since(readStart)))
 	if len(enc) != 0 {
 		if db.cleans != nil {
 			db.cleans.Set(hash[:], enc)
@@ -592,6 +603,20 @@ func (db *Database) Update(root common.Hash, parent common.Hash, block uint64, n
 		}
 	}
 	return nil
+}
+
+// DrainDiskWriteDuration atomically reads and zeroes the accumulated
+// disk-write time. Always ~0 for hashdb because Update only mutates the
+// in-memory dirty cache; provided for interface parity with pathdb.
+func (db *Database) DrainDiskWriteDuration() time.Duration {
+	return time.Duration(db.diskWriteNs.Swap(0))
+}
+
+// DiskReadNs returns the cumulative disk-read counter without resetting.
+// StateDB takes before/after snapshots around the commit phase to compute
+// the per-commit delta.
+func (db *Database) DiskReadNs() int64 {
+	return db.diskReadNs.Load()
 }
 
 // Size returns the current storage size of the memory cache in front of the

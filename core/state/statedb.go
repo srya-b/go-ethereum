@@ -145,15 +145,27 @@ type StateDB struct {
 	witnessStats *stateless.WitnessStats
 
 	// Measurements gathered during execution for debugging purposes
-	AccountReads    time.Duration
-	AccountHashes   time.Duration
-	AccountUpdates  time.Duration
-	AccountCommits  time.Duration
-	StorageReads    time.Duration
-	StorageUpdates  time.Duration
-	StorageCommits  time.Duration
-	SnapshotCommits time.Duration
-	TrieDBCommits   time.Duration
+	AccountReads        time.Duration
+	AccountHashes       time.Duration
+	AccountUpdates      time.Duration
+	AccountCommits      time.Duration
+	StorageReads        time.Duration
+	StorageUpdates      time.Duration
+	StorageCommits      time.Duration // longest single storage-trie commit (wall-clock contribution; parallel)
+	StorageCommitsTotal time.Duration // sum of per-storage-trie commit durations (total CPU work)
+	SnapshotCommits     time.Duration
+	TrieDBCommits       time.Duration
+
+	// Sum of per-storage-trie tr.Hash() durations across all dirty storage tries
+	// (nanoseconds). Populated concurrently from updateRoot, hence atomic.
+	StorageHashesNs atomic.Int64
+	// Sum of disk-touching durations inside the triedb backend during commit
+	// (nanoseconds). Populated concurrently, hence atomic.
+	TrieDiskWritesNs atomic.Int64
+	// Time spent reading trie nodes from disk during the commit phase
+	// (commit() + db.Update()). Computed from a before/after delta of the
+	// backend's cumulative read counter.
+	TrieDiskReadsCommitNs atomic.Int64
 
 	AccountLoaded  int          // Number of accounts retrieved from the database during the state transition
 	AccountUpdated int          // Number of accounts updated during the state transition
@@ -1400,7 +1412,9 @@ func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool, blockNum
 		// Run the storage updates concurrently to one another
 		workers.Go(func() error {
 			// Write any storage changes in the state object to its storage trie
+			objStart := time.Now()
 			update, set, err := obj.commit()
+			objElapsed := time.Since(objStart)
 			if err != nil {
 				return err
 			}
@@ -1409,7 +1423,15 @@ func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool, blockNum
 			}
 			lock.Lock()
 			updates[obj.addrHash] = update
-			s.StorageCommits = time.Since(start) // overwrite with the longest storage commit runtime
+			// StorageCommits keeps geth's "longest" wall-clock semantics: since
+			// all storage commit workers share the same `start`, the last to
+			// finish has the largest time.Since(start), which equals the
+			// parallel wall-time contribution of the storage-commit phase.
+			s.StorageCommits = time.Since(start)
+			// StorageCommitsTotal is the sum of per-storage-trie commit work,
+			// useful for understanding total CPU expended even when commits run
+			// in parallel.
+			s.StorageCommitsTotal += objElapsed
 			lock.Unlock()
 			return nil
 		})
@@ -1447,6 +1469,12 @@ func (s *StateDB) commit(deleteEmptyObjects bool, noStorageWiping bool, blockNum
 // commitAndFlush is a wrapper of commit which also commits the state mutations
 // to the configured data stores.
 func (s *StateDB) commitAndFlush(block uint64, deleteEmptyObjects bool, noStorageWiping bool) (*stateUpdate, error) {
+	// Snapshot the backend's cumulative disk-read counter so we can attribute
+	// the delta over commit() + db.Update() to TrieDiskReadsCommitNs.
+	var diskReadStart int64
+	if db := s.db.TrieDB(); db != nil {
+		diskReadStart = db.DiskReadNs()
+	}
 	ret, err := s.commit(deleteEmptyObjects, noStorageWiping, block)
 	if err != nil {
 		return nil, err
@@ -1497,7 +1525,13 @@ func (s *StateDB) commitAndFlush(block uint64, deleteEmptyObjects bool, noStorag
 				return nil, err
 			}
 			s.TrieDBCommits += time.Since(start)
+			// Attribute backend-reported disk-write time to this commit.
+			s.TrieDiskWritesNs.Add(int64(db.DrainDiskWriteDuration()))
 		}
+	}
+	// Compute disk-read delta accumulated during commit() + db.Update().
+	if db := s.db.TrieDB(); db != nil {
+		s.TrieDiskReadsCommitNs.Add(db.DiskReadNs() - diskReadStart)
 	}
 	s.reader, _ = s.db.Reader(s.originalRoot)
 	s.arbExtraData.unexpectedBalanceDelta.Set(new(big.Int))

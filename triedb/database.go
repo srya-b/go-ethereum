@@ -18,6 +18,7 @@ package triedb
 
 import (
 	"errors"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -156,6 +157,31 @@ func (db *Database) Update(root common.Hash, parent common.Hash, block uint64, n
 		return b.Update(root, parent, block, nodes, states.internal())
 	}
 	return errors.New("unknown backend")
+}
+
+// DrainDiskWriteDuration returns and zeroes the accumulated disk-write time
+// reported by the configured backend during commit-driven Update calls.
+func (db *Database) DrainDiskWriteDuration() time.Duration {
+	switch b := db.backend.(type) {
+	case *hashdb.Database:
+		return b.DrainDiskWriteDuration()
+	case *pathdb.Database:
+		return b.DrainDiskWriteDuration()
+	}
+	return 0
+}
+
+// DiskReadNs returns the cumulative disk-read counter from the configured
+// backend without resetting it. Callers take before/after snapshots and use
+// the delta to attribute reads to a specific phase.
+func (db *Database) DiskReadNs() int64 {
+	switch b := db.backend.(type) {
+	case *hashdb.Database:
+		return b.DiskReadNs()
+	case *pathdb.Database:
+		return b.DiskReadNs()
+	}
+	return 0
 }
 
 // Commit iterates over all the children of a particular node, writes them out
